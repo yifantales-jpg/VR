@@ -172,16 +172,23 @@ class StreetViewService {
 
   /**
    * Stitch the full equirectangular panorama from individual tiles onto a canvas.
+   *
+   * Tile requests are dispatched with bounded concurrency (up to
+   * `TILE_CONCURRENCY` in-flight at once) to avoid saturating the browser's
+   * HTTP connection pool and to stay comfortably within the server's per-minute
+   * rate limit.
+   *
    * @param {string}          panoId  – Panorama ID.
    * @param {HTMLCanvasElement} canvas – Destination canvas (width/height will be set).
    * @param {Function}        onProgress – Called with (loaded, total) as tiles arrive.
    * @returns {Promise<HTMLCanvasElement>}
    */
   async stitchPanorama(panoId, canvas, onProgress = () => {}) {
-    const zoom     = this.tileZoom;
-    const cols     = Math.pow(2, zoom);
-    const rows     = Math.pow(2, zoom - 1);
-    const tileSize = 512;
+    const zoom            = this.tileZoom;
+    const cols            = Math.pow(2, zoom);
+    const rows            = Math.pow(2, zoom - 1);
+    const tileSize        = 512;
+    const TILE_CONCURRENCY = 8; // max simultaneous tile requests
 
     canvas.width  = cols * tileSize;
     canvas.height = rows * tileSize;
@@ -190,24 +197,23 @@ class StreetViewService {
     const total = cols * rows;
     let loaded  = 0;
 
-    const tilePromises = [];
-
+    // Build the ordered list of tile-fetch tasks (closures, not yet started).
+    const tasks = [];
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const destX = col * tileSize;
         const destY = row * tileSize;
-
-        tilePromises.push(
+        tasks.push(() =>
           this._loadTile(panoId, zoom, col, row)
             .then(img => {
               ctx.drawImage(img, destX, destY, tileSize, tileSize);
-              loaded++;
-              onProgress(loaded, total);
             })
             .catch(() => {
-              // Draw a dark placeholder if a tile fails so the sphere still loads.
+              // Draw a dark placeholder so the sphere still renders.
               ctx.fillStyle = '#1a1a2e';
               ctx.fillRect(destX, destY, tileSize, tileSize);
+            })
+            .finally(() => {
               loaded++;
               onProgress(loaded, total);
             })
@@ -215,7 +221,7 @@ class StreetViewService {
       }
     }
 
-    await Promise.all(tilePromises);
+    await this._runWithConcurrency(tasks, TILE_CONCURRENCY);
     return canvas;
   }
 
@@ -270,6 +276,25 @@ class StreetViewService {
       copyright: '',
       tiles: json.Data || null,
     };
+  }
+
+  /**
+   * Run an array of zero-argument async task factories with at most `limit`
+   * tasks executing concurrently.  Tasks are started in order; a new task
+   * begins as soon as a running slot becomes free.
+   *
+   * @param {Array<() => Promise<any>>} tasks
+   * @param {number} limit – Max concurrent tasks (must be ≥ 1).
+   * @returns {Promise<void>}
+   */
+  _runWithConcurrency(tasks, limit) {
+    const iter = tasks[Symbol.iterator]();
+    const workers = Array.from({ length: limit }, async () => {
+      for (const task of iter) {
+        await task(); // eslint-disable-line no-await-in-loop
+      }
+    });
+    return Promise.all(workers);
   }
 
   /**

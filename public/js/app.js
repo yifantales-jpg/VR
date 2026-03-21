@@ -42,8 +42,8 @@ function showDebug(message, type = 'error') {
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
 const DEFAULT_TILE_ZOOM       = 4;     // 16×8 tiles → 8192×4096 panorama (CBK Street View)
-const PHOTO_SPHERE_WIDTH      = 4096;  // request width for Photo Sphere equirectangular image
-const PHOTO_SPHERE_HEIGHT     = 2048;  // request height (2:1 aspect ratio)
+const PHOTO_SPHERE_WIDTH      = 8192;  // request width for Photo Sphere equirectangular image
+const PHOTO_SPHERE_HEIGHT     = 4096;  // request height (2:1 aspect ratio) — matches tile quality
 
 /* ─── State ─────────────────────────────────────────────────────────────── */
 

@@ -14,7 +14,7 @@
   --text:       #e8eaf6;
   --text-muted: #90a4ae;
   --error:      #ef9a9a;
-  --radius:     12px;
+  --radius:     9999px;
   --shadow:     0 8px 32px rgba(0,0,0,0.6);
 }
 
@@ -97,7 +97,7 @@ input[type="password"] {
   padding: 12px 16px;
   font-size: 1rem;
   border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 8px;
+  border-radius: 9999px;
   background: rgba(255,255,255,0.06);
   color: var(--text);
   outline: none;
@@ -122,7 +122,7 @@ input[type="password"]:focus {
   font-size: 1rem;
   font-weight: 600;
   border: none;
-  border-radius: 8px;
+  border-radius: 9999px;
   background: var(--accent);
   color: #0d0d1a;
   cursor: pointer;
@@ -143,7 +143,7 @@ input[type="password"]:focus {
   font-size: 0.9rem;
   font-weight: 600;
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: 9999px;
   background: transparent;
   color: var(--accent);
   cursor: pointer;
@@ -166,7 +166,7 @@ input[type="password"]:focus {
 #status-bar {
   margin-top: 12px;
   padding: 10px 14px;
-  border-radius: 6px;
+  border-radius: 9999px;
   font-size: 0.9rem;
 }
 
@@ -193,7 +193,7 @@ input[type="password"]:focus {
   font-size: 1.15rem;
   font-weight: 700;
   border: 2px solid var(--accent);
-  border-radius: 50px;
+  border-radius: 9999px;
   background: rgba(79,195,247,0.12);
   color: var(--accent);
   cursor: pointer;

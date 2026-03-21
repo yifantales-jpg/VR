@@ -149,8 +149,8 @@ AFRAME.registerComponent('street-view-scene', {
         if (!mesh) return; // mesh not yet ready; will be applied via 'loaded' event
         const map = new THREE.CanvasTexture(canvas);
         map.encoding = THREE.sRGBEncoding;
-        map.minFilter = THREE.LinearFilter;
-        map.generateMipmaps = false;
+        map.minFilter = THREE.LinearMipmapLinearFilter;
+        map.generateMipmaps = true;
         const renderer = this.el.sceneEl && this.el.sceneEl.renderer;
         if (renderer) {
           map.anisotropy = renderer.capabilities.getMaxAnisotropy();

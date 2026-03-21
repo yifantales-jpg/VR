@@ -89,6 +89,11 @@ app.use((_req, res, next) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Serve A-Frame from node_modules to avoid bundling a 1.4 MB file in source.
+app.get('/js/aframe.min.js', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'node_modules', 'aframe', 'dist', 'aframe-v1.5.0.min.js'));
+});
+
 /* ─── Health check ───────────────────────────────────────────────────────── */
 
 app.get('/health', (_req, res) => {

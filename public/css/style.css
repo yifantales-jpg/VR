@@ -175,45 +175,6 @@ input[type="password"]:focus {
 .status-info  { background: rgba(79,195,247,0.12); color: var(--accent); }
 .status-error { background: rgba(239,154,154,0.12); color: var(--error); }
 
-/* ── Enter VR panel ────────────────────────────────────────────────────── */
-
-/* Floats above the VR scene; independent of the UI overlay so it stays
-   visible after the overlay is hidden. */
-#enter-vr-panel {
-  position: fixed;
-  bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  text-align: center;
-  z-index: 200;
-}
-
-.vr-btn {
-  padding: 16px 40px;
-  font-size: 1.15rem;
-  font-weight: 700;
-  border: 2px solid var(--accent);
-  border-radius: 50px;
-  background: rgba(79,195,247,0.12);
-  color: var(--accent);
-  cursor: pointer;
-  letter-spacing: 0.5px;
-  transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
-  box-shadow: 0 0 20px rgba(79,195,247,0.3);
-}
-
-.vr-btn:hover {
-  background: rgba(79,195,247,0.22);
-  box-shadow: 0 0 30px rgba(79,195,247,0.5);
-  transform: scale(1.03);
-}
-
-.vr-hint {
-  margin-top: 10px;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-}
-
 /* ── A-Frame scene ─────────────────────────────────────────────────────── */
 
 a-scene, #vr-scene {

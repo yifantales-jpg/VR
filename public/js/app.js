@@ -58,8 +58,6 @@ const $statusBar      = document.getElementById('status-bar');
 const $uiOverlay      = document.getElementById('ui-overlay');
 const $vrScene        = document.getElementById('vr-scene');
 const $loadBtn        = document.getElementById('load-btn');
-const $enterVRPanel   = document.getElementById('enter-vr-panel');
-const $enterVRBtn     = document.getElementById('enter-vr-btn');
 const $panoramaCanvas = document.getElementById('panorama-canvas');
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -183,7 +181,6 @@ async function loadPanorama(panoData, showScene = true) {
 
   if (showScene) {
     transitionToVRScene();
-    $enterVRPanel.style.display = '';  // reveal Enter VR button
   } else {
     // Already in scene – just refresh.
     applyPanoramaToScene(panoData);
@@ -222,6 +219,13 @@ function loadPhotoSphereImage(photoUrl) {
 
 /* ─── Scene management ───────────────────────────────────────────────────── */
 
+/** Show the 2-D UI overlay so the user can paste a new URL. */
+function showUIOverlay() {
+  $uiOverlay.classList.remove('fade-out');
+  $uiOverlay.style.display = '';
+  isVRMode = false;
+}
+
 /** Swap from the 2-D search UI to the immersive A-Frame scene. */
 function transitionToVRScene() {
   $uiOverlay.classList.add('fade-out');
@@ -238,6 +242,22 @@ function transitionToVRScene() {
     applyPanoramaToScene(currentPanoData);
 
     isVRMode = true;
+
+    // Automatically enter immersive VR mode once the panorama is ready.
+    if (navigator.xr) {
+      navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+        if (!supported) return;
+        const scene = document.getElementById('vr-scene');
+        try {
+          if (scene && !scene.is('vr-mode')) scene.enterVR();
+        } catch (err) {
+          console.error('[VRStreetView] Auto enter VR error:', err);
+          showDebug('Auto enter VR error: ' + err.message);
+        }
+      }).catch((err) => {
+        console.error('[VRStreetView] isSessionSupported error:', err);
+      });
+    }
   }, 400);
 }
 
@@ -291,30 +311,6 @@ $loadBtn.addEventListener('click', () => {
   loadFromUrl(url);
 });
 
-/** "Enter VR" button: enter or exit immersive VR. */
-$enterVRBtn.addEventListener('click', () => {
-  showDebug('Enter VR button clicked', 'info');
-
-  if (!navigator.xr) {
-    const msg = 'WebXR is not available. Access this page over HTTPS or from localhost to use VR.';
-    setStatus(msg, 'error');
-    showDebug('WebXR not available (navigator.xr is undefined)');
-    return;
-  }
-
-  const scene = document.getElementById('vr-scene');
-  try {
-    if (scene && scene.is('vr-mode')) {
-      scene.exitVR();
-    } else if (scene) {
-      scene.enterVR();
-    }
-  } catch (err) {
-    console.error('[VRStreetView] Enter VR error:', err);
-    showDebug('Enter VR error: ' + err.message);
-  }
-});
-
 $urlInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     showDebug('Enter key pressed in URL input', 'info');
@@ -322,12 +318,9 @@ $urlInput.addEventListener('keydown', (e) => {
   }
 });
 
-/** Listen for A-Frame VR enter/exit events to update the UI. */
-document.getElementById('vr-scene').addEventListener('enter-vr', () => {
-  $enterVRBtn.textContent = '⬅ Exit VR';
-});
+/** When the user exits VR (X button on controller, or any other means), return to the URL input UI. */
 document.getElementById('vr-scene').addEventListener('exit-vr', () => {
-  $enterVRBtn.textContent = '🥽 Enter VR';
+  showUIOverlay();
 });
 
 /** VR arrow navigation event (bubbled from nav-arrow component). */
@@ -348,7 +341,7 @@ document.getElementById('vr-scene').addEventListener('load-pano-by-id', (evt) =>
   }
   [
     'url-input', 'status-bar', 'ui-overlay',
-    'vr-scene', 'load-btn', 'enter-vr-btn', 'enter-vr-panel', 'panorama-canvas',
+    'vr-scene', 'load-btn', 'panorama-canvas',
   ].forEach(id => {
     if (!document.getElementById(id)) {
       showDebug('Required DOM element #' + id + ' was not found', 'warn');

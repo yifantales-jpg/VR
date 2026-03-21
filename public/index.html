@@ -31,18 +31,13 @@
     </div>
   </div>
 
-  <!-- ─── Enter VR button (shown only after a panorama is loaded) ─────────── -->
-  <div id="enter-vr-panel" style="display:none">
-    <button id="enter-vr-btn" class="vr-btn">🥽 Enter VR</button>
-  </div>
-
   <!-- ─── A-Frame VR Scene ────────────────────────────────────────────────── -->
   <!-- The scene is always in the DOM so A-Frame/WebGL initialises with proper
        dimensions; the UI overlay (z-index:100) covers it until a panorama loads. -->
   <a-scene
     id="vr-scene"
     renderer="antialias: true; colorManagement: true; sortObjects: true; physicallyCorrectLights: true"
-    vr-mode-ui="enabled: true; enterVRButton: #aframe-vr-btn"
+    vr-mode-ui="enabled: false"
     loading-screen="dotsColor: #fff; backgroundColor: #1a1a2e"
     embedded
   >
@@ -119,9 +114,6 @@
       ></a-entity>
     </a-entity>
   </a-scene>
-
-  <!-- Hidden button used by A-Frame's VR-mode-ui -->
-  <button id="aframe-vr-btn" style="display:none"></button>
 
   <!-- ─── On-page debug log (auto-shown when JS errors occur) ──────────────── -->
   <div id="debug-log" class="hidden"></div>

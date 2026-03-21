@@ -42,8 +42,8 @@ function showDebug(message, type = 'error') {
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
 const DEFAULT_TILE_ZOOM       = 4;     // 16×8 tiles → 8192×4096 panorama (CBK Street View)
-const PHOTO_SPHERE_WIDTH      = 8192;  // request width for Photo Sphere equirectangular image
-const PHOTO_SPHERE_HEIGHT     = 4096;  // request height (2:1 aspect ratio) — matches tile quality
+const PHOTO_SPHERE_WIDTH      = 16384; // request width for Photo Sphere equirectangular image
+const PHOTO_SPHERE_HEIGHT     = 8192;  // request height (2:1 aspect ratio) — exceeds tile quality for max HD
 
 /* ─── State ─────────────────────────────────────────────────────────────── */
 
@@ -194,8 +194,10 @@ async function loadPanorama(panoData, showScene = true) {
  * Load a user-contributed Photo Sphere by fetching its equirectangular image
  * via the /api/photo proxy and drawing it onto the shared canvas.
  *
- * The image is requested at 4096×2048 — a good balance of quality and
- * performance for WebXR — using the standard Google image-serving size suffix.
+ * The image is requested at up to 16384×8192 — the maximum resolution
+ * Google's image-serving will return — using the standard size suffix.
+ * If the stored image is smaller (e.g. 14400×7200), Google returns its native
+ * resolution and the canvas is sized to the actual dimensions received.
  *
  * @param {string} photoUrl – Base Google Photos URL (without size parameters).
  * @returns {Promise<void>}

@@ -17,13 +17,13 @@
   <!-- ─── 2-D UI overlay (hidden when in VR) ──────────────────────────────── -->
   <div id="ui-overlay">
     <div id="search-panel">
-      <div class="input-row">
-        <input
-          type="text"
-          id="url-input"
-          placeholder="Paste Google Maps Street View URL here…"
-          autocomplete="off"
-        />
+      <input
+        type="text"
+        id="url-input"
+        placeholder="Paste Google Maps Street View URL here…"
+        autocomplete="off"
+      />
+      <div class="load-row">
         <button id="load-btn" class="primary-btn">Load</button>
       </div>
 
@@ -99,51 +99,21 @@
         ></a-entity>
       </a-camera>
 
-      <!-- Left Quest 3 controller -->
+      <!-- Left Quest 3 controller (tracking only — model hidden) -->
       <a-entity
         id="left-hand"
-        oculus-touch-controls="hand: left"
+        oculus-touch-controls="hand: left; model: false"
         raycaster="objects: .nav-arrow; showLine: false"
       ></a-entity>
 
-      <!-- Right Quest 3 controller -->
+      <!-- Right Quest 3 controller (tracking only — model hidden) -->
       <a-entity
         id="right-hand"
-        oculus-touch-controls="hand: right"
+        oculus-touch-controls="hand: right; model: false"
         raycaster="objects: .nav-arrow; showLine: false"
       ></a-entity>
     </a-entity>
   </a-scene>
-
-  <!-- ─── On-page debug log (auto-shown when JS errors occur) ──────────────── -->
-  <div id="debug-log" class="hidden"></div>
-
-  <!-- Early error capture – runs before app scripts so init errors are visible -->
-  <script>
-    (function () {
-      function addEntry(msg, type) {
-        var el = document.getElementById('debug-log');
-        if (!el) return;
-        el.classList.remove('hidden');
-        var entry = document.createElement('div');
-        entry.className = 'debug-entry debug-' + (type || 'error');
-        entry.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
-        el.appendChild(entry);
-        el.scrollTop = el.scrollHeight;
-      }
-      window._vrDebug = { show: addEntry };
-      window.addEventListener('error', function (e) {
-        var file = e.filename ? e.filename.split('/').pop() : 'unknown';
-        addEntry('Uncaught error in ' + file + ':' + e.lineno + ' - ' + e.message);
-      });
-      window.addEventListener('unhandledrejection', function (e) {
-        var reason = e.reason instanceof Error
-          ? e.reason.message
-          : String(e.reason != null ? e.reason : 'Unknown rejection');
-        addEntry('Unhandled promise rejection: ' + reason);
-      });
-    }());
-  </script>
 
   <!-- App scripts -->
   <script src="js/street-view-service.js"></script>

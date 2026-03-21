@@ -265,7 +265,7 @@ app.get('/api/photo', apiLimiter, async (req, res) => {
   }
 
   // Restrict to Google's image-hosting domain to prevent open-proxy abuse.
-  if (parsedUrl.hostname !== 'lh3.googleusercontent.com') {
+  if (!/^lh\d+\.googleusercontent\.com$/.test(parsedUrl.hostname)) {
     return res.status(400).json({ error: 'Only Google image hosting URLs are supported.' });
   }
 
@@ -285,6 +285,14 @@ app.get('/api/photo', apiLimiter, async (req, res) => {
     const contentType = upstream.headers.get('content-type') || 'image/jpeg';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400');
+    upstream.body.on('error', (err) => {
+      console.error('[photo proxy] Stream error:', err.message);
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Failed to fetch photo.' });
+      } else {
+        res.destroy();
+      }
+    });
     upstream.body.pipe(res);
 
   } catch (err) {

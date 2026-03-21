@@ -298,26 +298,32 @@ AFRAME.registerComponent('vr-controller-input', {
 
   /**
    * Attach an onBeforeRender callback to the sky sphere mesh.
-   * In VR mode Three.js passes an ArrayCamera whose .cameras[] hold the
-   * per-eye projection matrices written by WebXR.  We scale m00 and m11 of
-   * each eye's projection matrix to simulate zoom without touching the FOV
-   * that WebXR controls.  In flat mode (non-ArrayCamera) we rely on the
-   * standard setAttribute('camera','fov') path instead.
+   * In WebXR mode Three.js renders each eye separately, passing the per-eye
+   * sub-camera to onBeforeRender (NOT the ArrayCamera).  We detect VR mode via
+   * renderer.xr.isPresenting and retrieve the XR ArrayCamera (which contains
+   * both eye cameras) from renderer.xr.getCamera().  We then scale m00 and m11
+   * of each eye's projection matrix to simulate zoom without touching the FOV
+   * that WebXR controls.  In flat mode we rely on the standard
+   * setAttribute('camera','fov') path instead.
    */
   _setupVRZoomHook() {
     const self = this;
 
     this._vrZoomHook = function vrZoomHook(renderer, scene, camera) {
-      // Only needed in VR mode — flat mode is handled via camera FOV.
-      if (!camera.isArrayCamera) return;
-      // Apply only once per frame (multiple meshes share the same frame).
+      // In WebXR, onBeforeRender receives the per-eye sub-camera (not the
+      // ArrayCamera), so camera.isArrayCamera is always false in VR mode.
+      // Use renderer.xr.isPresenting to detect an active XR session instead.
+      if (!renderer.xr || !renderer.xr.isPresenting) return;
+      // Apply only once per frame (the hook fires once per eye per visible object).
       if (self._vrZoomApplied) return;
       self._vrZoomApplied = true;
 
       const zoomScale = self._baseFov / self._fov;
       if (Math.abs(zoomScale - 1.0) < 0.0001) return; // no change needed
 
-      camera.cameras.forEach(eyeCam => {
+      // Get the XR ArrayCamera so we can modify both eye sub-cameras.
+      const xrCamera = renderer.xr.getCamera();
+      xrCamera.cameras.forEach(eyeCam => {
         // projectionMatrix is column-major; elements[0] = m00, elements[5] = m11.
         // Scaling both by zoomScale narrows (or widens) the effective FOV.
         eyeCam.projectionMatrix.elements[0] *= zoomScale;

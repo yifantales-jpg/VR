@@ -65,6 +65,33 @@ function getService() {
   return streetViewService;
 }
 
+/** Short URL services that can be resolved server-side before parsing. */
+const SHORT_URL_HOSTS = new Set(['maps.app.goo.gl', 'goo.gl', 't.co']);
+
+/**
+ * Attempt to resolve a URL via the server-side redirect-follower.
+ * Only sends URLs from known short-link services to avoid unnecessary requests.
+ * Returns the final (resolved) URL string, or null on failure.
+ * @param {string} url
+ * @returns {Promise<string|null>}
+ */
+async function resolveShortUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (!SHORT_URL_HOSTS.has(parsed.hostname)) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const res = await fetch(`/api/resolve?url=${encodeURIComponent(url)}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.url || null;
+  } catch {
+    return null;
+  }
+}
+
 /* ─── Panorama loading ───────────────────────────────────────────────────── */
 
 /**
@@ -79,7 +106,20 @@ async function loadFromUrl(input) {
   clearStatus();
 
   try {
-    const parsed = StreetViewService.parseGoogleMapsUrl(trimmed);
+    let urlToParse = trimmed;
+    let parsed = StreetViewService.parseGoogleMapsUrl(urlToParse);
+
+    // If direct parsing failed, try resolving URL redirects (e.g. short links
+    // like maps.app.goo.gl or t.co) and parse the final destination URL.
+    if (!parsed) {
+      setStatus('Resolving URL…', 'info');
+      const resolved = await resolveShortUrl(urlToParse);
+      if (resolved && resolved !== urlToParse) {
+        urlToParse = resolved;
+        parsed = StreetViewService.parseGoogleMapsUrl(urlToParse);
+      }
+    }
+
     if (!parsed) {
       throw new Error(
         'Could not read location from that URL. Please paste a Google Maps Street View link.'

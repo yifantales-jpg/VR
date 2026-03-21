@@ -41,9 +41,9 @@ function showDebug(message, type = 'error') {
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-const DEFAULT_TILE_ZOOM       = 4;     // 16×8 tiles → 8192×4096 panorama (CBK Street View)
-const PHOTO_SPHERE_WIDTH      = 16384; // request width for Photo Sphere equirectangular image
-const PHOTO_SPHERE_HEIGHT     = 8192;  // request height (2:1 aspect ratio) — exceeds tile quality for max HD
+const DEFAULT_TILE_ZOOM       = 4;    // 16×8 tiles → 8192×4096 panorama (CBK Street View)
+const PHOTO_SPHERE_WIDTH      = 8192; // fallback request width for Photo Sphere when native size is unknown
+const PHOTO_SPHERE_HEIGHT     = 4096; // fallback request height (2:1 aspect ratio)
 
 /* ─── State ─────────────────────────────────────────────────────────────── */
 
@@ -161,7 +161,7 @@ async function loadPanorama(panoData, showScene = true) {
   if (panoData.photoUrl) {
     // User-contributed Photo Sphere: load the equirectangular image directly.
     setStatus('Loading panorama image…', 'info');
-    await loadPhotoSphereImage(panoData.photoUrl);
+    await loadPhotoSphereImage(panoData.photoUrl, panoData.photoWidth, panoData.photoHeight);
     console.info(`[VRStreetView] Loaded photo sphere (${panoData.panoId})`);
   } else {
     setStatus(`Stitching panorama tiles…`, 'info');
@@ -194,27 +194,35 @@ async function loadPanorama(panoData, showScene = true) {
  * Load a user-contributed Photo Sphere by fetching its equirectangular image
  * via the /api/photo proxy and drawing it onto the shared canvas.
  *
- * The image is requested at up to 16384×8192 — the maximum resolution
- * Google's image-serving will return — using the standard size suffix.
- * If the stored image is smaller (e.g. 14400×7200), Google returns its native
- * resolution and the canvas is sized to the actual dimensions received.
+ * The image is requested at its native resolution when `width` and `height`
+ * are provided (extracted from the `!7i` / `!8i` segments of the Maps URL).
+ * This ensures we never ask Google's image-serving for a size larger than the
+ * source, which causes it to return an error.  When no native size is known,
+ * the request falls back to `PHOTO_SPHERE_WIDTH × PHOTO_SPHERE_HEIGHT`.
  *
  * @param {string} photoUrl – Base Google Photos URL (without size parameters).
+ * @param {number} [width]  – Native image width (optional; falls back to constant).
+ * @param {number} [height] – Native image height (optional; falls back to constant).
  * @returns {Promise<void>}
  */
-function loadPhotoSphereImage(photoUrl) {
-  const proxyUrl = `/api/photo?url=${encodeURIComponent(photoUrl + `=w${PHOTO_SPHERE_WIDTH}-h${PHOTO_SPHERE_HEIGHT}-k-no`)}`;
+function loadPhotoSphereImage(photoUrl, width, height) {
+  const reqWidth  = (width  > 0) ? width  : PHOTO_SPHERE_WIDTH;
+  const reqHeight = (height > 0) ? height : PHOTO_SPHERE_HEIGHT;
+  const proxyUrl  = `/api/photo?url=${encodeURIComponent(photoUrl + `=w${reqWidth}-h${reqHeight}-k-no`)}`;
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
-      $panoramaCanvas.width  = img.naturalWidth  || PHOTO_SPHERE_WIDTH;
-      $panoramaCanvas.height = img.naturalHeight || PHOTO_SPHERE_HEIGHT;
+      $panoramaCanvas.width  = img.naturalWidth  || reqWidth;
+      $panoramaCanvas.height = img.naturalHeight || reqHeight;
       const ctx = $panoramaCanvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
       resolve();
     };
-    img.onerror = () => reject(new Error('Failed to load panorama image.'));
+    img.onerror = () => {
+      console.error('[VRStreetView] Photo sphere image failed to load:', proxyUrl);
+      reject(new Error('Failed to load panorama image.'));
+    };
     img.src = proxyUrl;
   });
 }

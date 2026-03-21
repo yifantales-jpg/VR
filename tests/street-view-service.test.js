@@ -118,6 +118,8 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
     expect(result).not.toBeNull();
     expect(result.panoId).toBe('CIHM0ogKEICAgICW6pqIgwE');
     expect(result.photoUrl).toBe('https://lh3.googleusercontent.com/gpms-cs-s/TestPhotoId');
+    expect(result.photoWidth).toBe(14400);
+    expect(result.photoHeight).toBe(7200);
   });
 
   it('extracts photoUrl from a Photo Sphere hosted on lh4.googleusercontent.com', () => {
@@ -131,6 +133,8 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
     expect(result).not.toBeNull();
     expect(result.panoId).toBe('PANO456');
     expect(result.photoUrl).toBe('https://lh4.googleusercontent.com/gpms-cs-s/AnotherPhotoId');
+    expect(result.photoWidth).toBe(14400);
+    expect(result.photoHeight).toBe(7200);
   });
 
   it('returns only panoId (no photoUrl) for a standard Street View URL', () => {
@@ -148,6 +152,25 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
     const result = StreetViewService.parseGoogleMapsUrl(url);
     expect(result).toEqual({ panoId: 'ABC123XYZ' });
     expect(result.photoUrl).toBeUndefined();
+  });
+});
+
+describe('StreetViewService._extractPhotoDimensions', () => {
+  it('extracts width and height from !7i and !8i segments', () => {
+    const dataStr = '!3m8!1e1!3m6!1sPANO!2e10!3e11!6shttps:%2F%2Flh3.googleusercontent.com%2Fimg!7i14400!8i7200';
+    const result = StreetViewService._extractPhotoDimensions(dataStr);
+    expect(result).toEqual({ photoWidth: 14400, photoHeight: 7200 });
+  });
+
+  it('returns empty object when !7i / !8i are absent', () => {
+    const dataStr = '!3m8!1e1!3m6!1sPANO!2e10!3e11!6shttps:%2F%2Flh3.googleusercontent.com%2Fimg';
+    const result = StreetViewService._extractPhotoDimensions(dataStr);
+    expect(result).toEqual({});
+  });
+
+  it('returns empty object when only one dimension is present', () => {
+    expect(StreetViewService._extractPhotoDimensions('!7i14400')).toEqual({});
+    expect(StreetViewService._extractPhotoDimensions('!8i7200')).toEqual({});
   });
 });
 
@@ -268,10 +291,12 @@ describe('StreetViewService.fetchPanoData with photoUrl', () => {
   it('returns synthetic PanoramaData immediately without a network call when photoUrl is provided', async () => {
     const svc = new StreetViewService();
     const photoUrl = 'https://lh3.googleusercontent.com/gpms-cs-s/TestPhotoId';
-    const result = await svc.fetchPanoData({ panoId: 'CIHM0ogKEICAgICW6pqIgwE', photoUrl });
+    const result = await svc.fetchPanoData({ panoId: 'CIHM0ogKEICAgICW6pqIgwE', photoUrl, photoWidth: 14400, photoHeight: 7200 });
 
     expect(result.panoId).toBe('CIHM0ogKEICAgICW6pqIgwE');
     expect(result.photoUrl).toBe(photoUrl);
+    expect(result.photoWidth).toBe(14400);
+    expect(result.photoHeight).toBe(7200);
     expect(result.links).toEqual([]);
     expect(result.latLng).toEqual({ lat: 0, lng: 0 });
   });
@@ -282,5 +307,13 @@ describe('StreetViewService.fetchPanoData with photoUrl', () => {
     const result = await svc.fetchPanoData({ photoUrl });
     expect(result.photoUrl).toBe(photoUrl);
     expect(result.panoId).toBe('');
+  });
+
+  it('preserves undefined photoWidth/photoHeight when dimensions are not provided', async () => {
+    const svc = new StreetViewService();
+    const photoUrl = 'https://lh3.googleusercontent.com/gpms-cs-s/Nodims';
+    const result = await svc.fetchPanoData({ photoUrl });
+    expect(result.photoWidth).toBeUndefined();
+    expect(result.photoHeight).toBeUndefined();
   });
 });

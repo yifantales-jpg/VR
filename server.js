@@ -66,7 +66,7 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc:  ["'self'"],
-        scriptSrc:   ["'self'", "'unsafe-inline'", 'https://aframe.io'],
+        scriptSrc:   ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         styleSrc:    ["'self'", "'unsafe-inline'"],
         imgSrc:      ["'self'", 'data:', 'blob:', 'https:', 'http:'],
         connectSrc:  ["'self'"],
@@ -88,6 +88,11 @@ app.use((_req, res, next) => {
 /* ─── Static files ───────────────────────────────────────────────────────── */
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve A-Frame from node_modules to avoid bundling a 1.4 MB file in source.
+app.get('/js/aframe.min.js', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'node_modules', 'aframe', 'dist', 'aframe-v1.5.0.min.js'));
+});
 
 /* ─── Health check ───────────────────────────────────────────────────────── */
 

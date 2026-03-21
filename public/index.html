@@ -6,8 +6,8 @@
   <title>VR Street View — Quest 3</title>
   <meta name="description" content="Immersive Google Street View VR projection for Meta Quest 3">
 
-  <!-- A-Frame WebXR library -->
-  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <!-- A-Frame WebXR library (served locally to avoid external SSL dependencies) -->
+  <script src="js/aframe.min.js"></script>
 
   <!-- App styles -->
   <link rel="stylesheet" href="css/style.css">
@@ -16,11 +16,6 @@
 
   <!-- ─── 2-D UI overlay (hidden when in VR) ──────────────────────────────── -->
   <div id="ui-overlay">
-    <div id="header">
-      <h1>🌍 VR Street View</h1>
-      <p class="subtitle">Paste a Google Maps Street View URL to explore in VR</p>
-    </div>
-
     <div id="search-panel">
       <div class="input-row">
         <input
@@ -29,21 +24,15 @@
           placeholder="Paste Google Maps Street View URL here…"
           autocomplete="off"
         />
-        <button id="load-btn" class="primary-btn">Load</button>
       </div>
-
-      <p class="url-hint">
-        Open Google Maps → navigate to any Street View location → copy the URL from your browser and paste it above.
-      </p>
 
       <div id="status-bar" class="hidden"></div>
     </div>
   </div>
 
-  <!-- ─── Enter VR overlay (shown after panorama loads, sits above the scene) -->
-  <div id="enter-vr-panel" class="hidden">
+  <!-- ─── Enter VR button (always visible, above the scene) ──────────────── -->
+  <div id="enter-vr-panel">
     <button id="enter-vr-btn" class="vr-btn">🥽 Enter VR</button>
-    <p class="vr-hint">Or open this page in your Quest 3 browser</p>
   </div>
 
   <!-- ─── A-Frame VR Scene ────────────────────────────────────────────────── -->

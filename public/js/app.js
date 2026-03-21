@@ -14,6 +14,31 @@
 
 'use strict';
 
+/* ─── On-page debug log ──────────────────────────────────────────────────── */
+
+/**
+ * Append a message to the always-visible #debug-log panel.
+ * Works even when the main UI overlay is hidden or JS initialisation has failed.
+ * @param {string} message
+ * @param {'error'|'warn'|'info'} [type]
+ */
+function showDebug(message, type = 'error') {
+  if (window._vrDebug) window._vrDebug.show(message, type);
+}
+
+// Forward console.error calls to the debug panel so A-Frame / library errors
+// are visible on the page without requiring DevTools to be open.
+(function mirrorConsoleError() {
+  const orig = console.error.bind(console);
+  console.error = function (...args) {
+    orig(...args);
+    const text = args
+      .map(a => (a instanceof Error ? (a.stack || a.message) : String(a)))
+      .join(' ');
+    showDebug(text);
+  };
+}());
+
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
 const DEFAULT_TILE_ZOOM = 3;   // 8×4 tiles → 4096×2048 panorama
@@ -112,6 +137,7 @@ async function navigateToPano(panoId) {
     await loadPanorama(panoData, /* showScene= */ false);
   } catch (err) {
     console.error('[VRStreetView] Navigation error:', err);
+    showDebug('Navigation error: ' + err.message);
   } finally {
     showVRLoadingIndicator(false);
   }
@@ -222,30 +248,45 @@ function showVRLoadingIndicator(show, message = 'Loading panorama…') {
 /* ─── Event wiring ───────────────────────────────────────────────────────── */
 
 /** Load button and Enter key. */
-$loadBtn.addEventListener('click', () => loadFromUrl($urlInput.value));
+$loadBtn.addEventListener('click', () => {
+  showDebug('Load button clicked', 'info');
+  loadFromUrl($urlInput.value);
+});
 $urlInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') loadFromUrl($urlInput.value);
+  if (e.key === 'Enter') {
+    showDebug('Enter key pressed in URL input', 'info');
+    loadFromUrl($urlInput.value);
+  }
 });
 
 /** Enter VR button (triggers A-Frame's VR mode). */
 $enterVRBtn.addEventListener('click', () => {
+  showDebug('Enter VR button clicked', 'info');
   const scene = document.getElementById('vr-scene');
-  if (!scene) return;
+  if (!scene) {
+    showDebug('VR scene element not found');
+    return;
+  }
 
   if (!navigator.xr) {
-    setStatus(
-      'WebXR is not available. Access this page over HTTPS or from localhost to use VR.',
-      'error'
-    );
+    const msg =
+      'WebXR is not available. Access this page over HTTPS or from localhost to use VR.';
+    setStatus(msg, 'error');
+    showDebug('WebXR not available (navigator.xr is undefined)');
     $uiOverlay.style.display = '';
     $uiOverlay.classList.remove('fade-out');
     return;
   }
 
-  if (scene.is('vr-mode')) {
-    scene.exitVR();
-  } else {
-    scene.enterVR();
+  try {
+    if (scene.is('vr-mode')) {
+      scene.exitVR();
+    } else {
+      scene.enterVR();
+    }
+  } catch (err) {
+    console.error('[VRStreetView] Enter VR error:', err);
+    showDebug('Enter VR error: ' + err.message);
   }
 });
 
@@ -266,6 +307,23 @@ document.getElementById('vr-scene').addEventListener('load-pano-by-id', (evt) =>
 /* ─── Init ───────────────────────────────────────────────────────────────── */
 
 (function init() {
+  // ── Startup diagnostics ────────────────────────────────────────────────
+  if (typeof StreetViewService === 'undefined') {
+    showDebug('StreetViewService is not defined — street-view-service.js may not have loaded', 'warn');
+  }
+  if (typeof AFRAME === 'undefined') {
+    showDebug('A-Frame is not defined — check network connectivity or content blocker', 'warn');
+  }
+  [
+    'url-input', 'load-btn', 'status-bar', 'ui-overlay',
+    'vr-scene', 'enter-vr-panel', 'enter-vr-btn', 'panorama-canvas',
+  ].forEach(id => {
+    if (!document.getElementById(id)) {
+      showDebug('Required DOM element #' + id + ' was not found', 'warn');
+    }
+  });
+  // ──────────────────────────────────────────────────────────────────────
+
   // Auto-load from URL fragment if launched from Android with a Maps URL:
   // e.g. http://localhost:3000/#mapsurl=https%3A%2F%2Fwww.google.com%2Fmaps%2F...
   const fragment = window.location.hash;

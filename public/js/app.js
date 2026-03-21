@@ -121,7 +121,7 @@ async function loadFromUrl(input) {
 
   } catch (err) {
     console.error('[VRStreetView] Load error:', err);
-    setStatus(`Error: ${err.message}`, 'error');
+    setStatus(`Error: ${err && err.message ? err.message : String(err)}`, 'error');
   } finally {
     setLoading(false);
   }
@@ -139,7 +139,7 @@ async function navigateToPano(panoId) {
     await loadPanorama(panoData, /* showScene= */ false);
   } catch (err) {
     console.error('[VRStreetView] Navigation error:', err);
-    showDebug('Navigation error: ' + err.message);
+    showDebug('Navigation error: ' + (err && err.message ? err.message : String(err)));
   } finally {
     showVRLoadingIndicator(false);
   }
@@ -292,7 +292,7 @@ $loadBtn.addEventListener('click', () => {
 });
 
 /** "Enter VR" button: enter or exit immersive VR. */
-$enterVRBtn.addEventListener('click', () => {
+$enterVRBtn.addEventListener('click', async () => {
   showDebug('Enter VR button clicked', 'info');
 
   if (!navigator.xr) {
@@ -305,13 +305,13 @@ $enterVRBtn.addEventListener('click', () => {
   const scene = document.getElementById('vr-scene');
   try {
     if (scene && scene.is('vr-mode')) {
-      scene.exitVR();
+      await scene.exitVR();
     } else if (scene) {
-      scene.enterVR();
+      await scene.enterVR();
     }
   } catch (err) {
     console.error('[VRStreetView] Enter VR error:', err);
-    showDebug('Enter VR error: ' + err.message);
+    showDebug('Enter VR error: ' + (err && err.message ? err.message : String(err)));
   }
 });
 

@@ -53,9 +53,21 @@ global.THREE = {
   Euler: MockEuler,
   DeviceOrientationControls: MockDeviceOrientationControls,
   MathUtils: { degToRad: (d) => d * Math.PI / 180, clamp: (v, mn, mx) => Math.min(Math.max(v, mn), mx) },
-  CanvasTexture: class { constructor() { this.encoding = null; this.minFilter = null; this.generateMipmaps = false; this.anisotropy = 1; } },
-  LinearMipmapLinearFilter: 1,
-  sRGBEncoding: 3001,
+  CanvasTexture: class {
+    constructor() {
+      this.colorSpace      = null;
+      this.encoding        = null;
+      this.minFilter       = null;
+      this.generateMipmaps = true;  // Three.js default is true
+      this.anisotropy      = 1;
+    }
+  },
+  // Modern color-space constants (Three.js r152+)
+  SRGBColorSpace:        'srgb',
+  LinearSRGBColorSpace:  'srgb-linear',
+  // Filter constants
+  LinearFilter:                 1006,
+  LinearMipmapLinearFilter:     1008,
 };
 
 // ── Mock AFRAME ─────────────────────────────────────────────────────────────
@@ -221,5 +233,104 @@ describe('patchOculusTouchControls', () => {
     expect(() => {
       instance.updateThumbstickTouchV3orPROorPlus({ detail: { x: 0.3, y: 0.3 } });
     }).not.toThrow();
+  });
+});
+
+/* ─── street-view-scene: panorama texture sharpness settings ─────────────── */
+
+describe('street-view-scene panorama texture settings', () => {
+  /**
+   * Build a minimal mock environment that lets us call loadPanorama()
+   * and capture the THREE.CanvasTexture that gets created.
+   */
+  function buildSceneInstance() {
+    const createdTextures = [];
+
+    // Capture every CanvasTexture instantiation.
+    const OrigCanvasTexture = global.THREE.CanvasTexture;
+    const CapturingCanvasTexture = class extends OrigCanvasTexture {
+      constructor(...args) {
+        super(...args);
+        createdTextures.push(this);
+      }
+    };
+    global.THREE.CanvasTexture = CapturingCanvasTexture;
+
+    const material = { map: null, needsUpdate: false };
+    const mesh = { material };
+
+    const sky = {
+      getObject3D: jest.fn(() => mesh),
+      setAttribute: jest.fn(),
+      addEventListener: jest.fn(),
+    };
+
+    const mockRenderer = {
+      capabilities: { getMaxAnisotropy: () => 16 },
+    };
+
+    const sceneEl = {
+      renderer: mockRenderer,
+      querySelector: jest.fn((sel) => {
+        if (sel === '#panorama-sky') return sky;
+        return null;
+      }),
+      addEventListener: jest.fn(),
+    };
+
+    const comp = registeredComponents['street-view-scene'];
+    const instance = Object.create(comp.Component.prototype);
+    instance.el = { ...sceneEl, sceneEl };
+
+    const canvas = { width: 8192, height: 4096 };
+
+    return {
+      instance,
+      sky,
+      material,
+      canvas,
+      createdTextures,
+      restore() { global.THREE.CanvasTexture = OrigCanvasTexture; },
+    };
+  }
+
+  test('panorama texture uses LinearFilter (bilinear, no mipmaps) for sharpest output', () => {
+    const { instance, canvas, createdTextures, restore } = buildSceneInstance();
+
+    try {
+      instance.loadPanorama({ description: '', links: [] }, canvas, 0);
+    } finally {
+      restore();
+    }
+
+    expect(createdTextures).toHaveLength(1);
+    const tex = createdTextures[0];
+    expect(tex.minFilter).toBe(THREE.LinearFilter);
+    expect(tex.generateMipmaps).toBe(false);
+  });
+
+  test('panorama texture uses SRGBColorSpace (modern API)', () => {
+    const { instance, canvas, createdTextures, restore } = buildSceneInstance();
+
+    try {
+      instance.loadPanorama({ description: '', links: [] }, canvas, 0);
+    } finally {
+      restore();
+    }
+
+    expect(createdTextures).toHaveLength(1);
+    expect(createdTextures[0].colorSpace).toBe(THREE.SRGBColorSpace);
+  });
+
+  test('panorama texture uses maximum anisotropy from renderer capabilities', () => {
+    const { instance, canvas, createdTextures, restore } = buildSceneInstance();
+
+    try {
+      instance.loadPanorama({ description: '', links: [] }, canvas, 0);
+    } finally {
+      restore();
+    }
+
+    expect(createdTextures[0].anisotropy).toBe(16);
   });
 });

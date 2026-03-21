@@ -148,9 +148,15 @@ AFRAME.registerComponent('street-view-scene', {
         const mesh = sky.getObject3D('mesh');
         if (!mesh) return; // mesh not yet ready; will be applied via 'loaded' event
         const map = new THREE.CanvasTexture(canvas);
-        map.encoding = THREE.sRGBEncoding;
-        map.minFilter = THREE.LinearMipmapLinearFilter;
-        map.generateMipmaps = true;
+        // Three.js r152+ deprecated texture.encoding in favour of texture.colorSpace.
+        // Use SRGBColorSpace (replaces sRGBEncoding) to match A-Frame 1.5.0's own
+        // renderer color-management pipeline (renderer.outputColorSpace = SRGBColorSpace).
+        map.colorSpace    = THREE.SRGBColorSpace;
+        // Bilinear filtering without mipmaps: the GPU always samples from the
+        // full-resolution panorama texture.  Trilinear + mipmaps can select an
+        // overly-blurred mip level for the sky sphere, reducing apparent sharpness.
+        map.minFilter     = THREE.LinearFilter;
+        map.generateMipmaps = false;
         const renderer = this.el.sceneEl && this.el.sceneEl.renderer;
         if (renderer) {
           map.anisotropy = renderer.capabilities.getMaxAnisotropy();

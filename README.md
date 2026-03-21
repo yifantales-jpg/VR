@@ -29,12 +29,12 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
 │  Node.js Server (server.js)                                         │
 │  • Serves the A-Frame web app (public/)                             │
 │  • Proxies Street View tile requests (avoids CORS)                  │
-│  • Proxies Geocoding & metadata API calls (keeps API key server-side)│
+│  • Proxies CBK panorama metadata requests (no API key required)    │
 └─────────────────────────────────────────────────────────────────────┘
          ▲
          │  Google Maps Platform APIs
 ┌────────┴────────────────────────────────────────────────────────────┐
-│  Google Street View  (panorama tiles, geocoding, metadata)          │
+│  Google Street View  (panorama tiles + metadata via CBK)            │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -43,7 +43,7 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
 | Path | Purpose |
 |------|---------|
 | `public/index.html` | A-Frame VR scene — panorama sphere, nav arrows, camera rig |
-| `public/js/street-view-service.js` | Google Maps API wrapper — geocoding, panorama fetch, tile stitching |
+| `public/js/street-view-service.js` | Google Maps URL parser, CBK panorama fetch, equirectangular tile stitching |
 | `public/js/panorama-components.js` | Custom A-Frame components (`nav-arrow`, `street-view-scene`, etc.) |
 | `public/js/app.js` | UI logic — search, location loading, scene transitions |
 | `public/css/style.css` | Dark-theme UI styling |
@@ -55,11 +55,9 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
 ## Prerequisites
 
 - **Node.js 18+** (for the server)
-- **Google Maps Platform API key** with these APIs enabled:
-  - Maps JavaScript API
-  - Street View Static API
-  - Geocoding API
 - *(For Android build)* Android Studio Hedgehog or later + Android SDK 34
+
+> **No Google Maps API key required.** The app fetches panorama tiles and metadata directly from Google's public CBK tile service (`cbk0.google.com`), which is the same service used by the Maps SDK itself.
 
 ---
 
@@ -72,26 +70,41 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
    npm install
    ```
 
-2. **Set your Google Maps API key:**
-   ```bash
-   export GOOGLE_MAPS_KEY=AIza…your_key_here…
-   ```
-
-3. **Start the server:**
+2. **Start the server:**
    ```bash
    npm start
    # → Server running on http://localhost:3000
    ```
 
-4. **Open in Quest 3:**
+3. **Open in Quest 3:**
    - Find your machine's local IP (e.g. `192.168.1.42`).
    - Open the **Meta Browser** on your Quest 3.
    - Navigate to `http://192.168.1.42:3000`.
-   - Search for any location (e.g. *"Eiffel Tower, Paris"*).
+   - Paste any Google Maps Street View URL into the input box and press **Load**.
    - Press **Enter VR** — the panorama loads on a 360° sphere.
    - Use your **controllers** or **head gaze** to follow the direction arrows and walk through Street View.
 
-   > **Tip:** For the best experience, run the server on the same Wi-Fi network as your Quest 3.
+   > **Tip:** Your PC and Quest 3 must be on the same Wi-Fi network.
+
+---
+
+## Testing on Quest 3
+
+### Option A — Browser (no build needed, quickest)
+
+1. Run `npm start` on your PC/Mac.
+2. Find your machine's LAN IP:
+   - **macOS/Linux:** `ifconfig | grep "inet "`
+   - **Windows:** `ipconfig` → look for "IPv4 Address"
+3. On the Quest 3, open **Meta Browser** and go to `http://<your-LAN-IP>:3000`.
+4. Paste a Google Maps Street View URL (e.g. from `maps.google.com` on desktop) and tap **Load**.
+5. Tap **Enter VR** to enter immersive mode.
+
+### Option B — Sideloaded APK (Android native shell)
+
+See the [Android App](#android-app) section below for build and install instructions.
+
+> **Note:** WebXR's immersive-vr session works in Meta Browser on Quest 3 without any special flags or developer settings.
 
 ---
 
@@ -102,9 +115,8 @@ The native Android wrapper launches the web app inside a full-screen `WebView` c
 ### Build
 
 1. Open `android/` in **Android Studio**.
-2. In `android/local.properties`, add your API key and server URL:
+2. In `android/local.properties`, set the server URL (your LAN IP while developing, production HTTPS URL when deploying):
    ```properties
-   GOOGLE_MAPS_KEY=AIza…your_key_here…
    # For Quest 3 on Wi-Fi — use your machine's LAN IP:
    VR_SERVER_URL=http://192.168.1.42:3000
    # For production (WebXR requires HTTPS):
@@ -157,7 +169,7 @@ Navigation arrows appear on the ground plane at the compass headings of adjacent
 
 ### Security
 
-- The Google Maps API key is **never sent to the browser**. It lives on the server and is attached by the Node.js proxy before forwarding requests to Google.
+- **No API key is used or required.** All requests go to Google's public CBK tile service, the same endpoint used by the Maps SDK.
 - The tile proxy validates all parameters (pano ID format, zoom/x/y bounds) before making upstream requests.
 - Content Security Policy headers are set via `helmet`.
 
@@ -180,10 +192,9 @@ Tests cover:
 
 For production deployment (HTTPS required for WebXR):
 
-1. Deploy to any HTTPS host (Heroku, Railway, Fly.io, etc.).
-2. Set `GOOGLE_MAPS_KEY` as an environment variable on the host.
-3. Update `WEB_APP_URL` in `android/app/src/main/java/com/vrstreetview/StreetViewVRActivity.kt` to your production URL.
-4. Rebuild and sideload the APK.
+1. Deploy to any HTTPS host (Heroku, Railway, Fly.io, etc.). No environment variables are required — the app uses Google's public CBK tile service with no API key.
+2. Update `WEB_APP_URL` in `android/app/src/main/java/com/vrstreetview/StreetViewVRActivity.kt` to your production URL.
+3. Rebuild and sideload the APK.
 
 ---
 

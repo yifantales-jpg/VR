@@ -177,8 +177,15 @@ input[type="password"]:focus {
 
 /* ── Enter VR panel ────────────────────────────────────────────────────── */
 
+/* Floats above the VR scene; independent of the UI overlay so it stays
+   visible after the overlay is hidden. */
 #enter-vr-panel {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
   text-align: center;
+  z-index: 200;
 }
 
 .vr-btn {

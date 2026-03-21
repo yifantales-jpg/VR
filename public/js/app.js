@@ -164,13 +164,17 @@ function transitionToVRScene() {
 
   setTimeout(() => {
     $uiOverlay.style.display = 'none';
-    $vrScene.classList.remove('hidden');
-    $vrScene.style.display   = 'block';
 
-    // Register components now that the scene is visible.
+    // The a-scene is always in the DOM and already initialised; dispatch a
+    // resize event so A-Frame/Three.js recomputes canvas dimensions now that
+    // the overlay is gone.
+    window.dispatchEvent(new Event('resize'));
+
     registerSceneComponents();
     applyPanoramaToScene(currentPanoData);
 
+    // The enter-VR panel lives outside the UI overlay so it is still
+    // reachable once the overlay is hidden.
     $enterVRPanel.classList.remove('hidden');
 
     isVRMode = true;
@@ -226,9 +230,21 @@ $urlInput.addEventListener('keydown', (e) => {
 /** Enter VR button (triggers A-Frame's VR mode). */
 $enterVRBtn.addEventListener('click', () => {
   const scene = document.getElementById('vr-scene');
-  if (scene && scene.xrSession) {
+  if (!scene) return;
+
+  if (!navigator.xr) {
+    setStatus(
+      'WebXR is not available. Access this page over HTTPS or from localhost to use VR.',
+      'error'
+    );
+    $uiOverlay.style.display = '';
+    $uiOverlay.classList.remove('fade-out');
+    return;
+  }
+
+  if (scene.is('vr-mode')) {
     scene.exitVR();
-  } else if (scene) {
+  } else {
     scene.enterVR();
   }
 });

@@ -79,6 +79,12 @@ app.use(
   })
 );
 
+// Allow WebXR / immersive-vr sessions on Quest browser.
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'xr-spatial-tracking=*');
+  next();
+});
+
 /* ─── Static files ───────────────────────────────────────────────────────── */
 
 app.use(express.static(path.join(__dirname, 'public')));

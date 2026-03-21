@@ -144,10 +144,21 @@ AFRAME.registerComponent('street-view-scene', {
     // Refresh the sky texture.
     const sky = this.el.querySelector('#panorama-sky');
     if (sky) {
-      const map = new THREE.CanvasTexture(canvas);
-      map.encoding = THREE.sRGBEncoding;
-      sky.getObject3D('mesh').material.map = map;
-      sky.getObject3D('mesh').material.needsUpdate = true;
+      const applyTexture = () => {
+        const mesh = sky.getObject3D('mesh');
+        if (!mesh) return; // mesh not yet ready; will be applied via 'loaded' event
+        const map = new THREE.CanvasTexture(canvas);
+        map.encoding = THREE.sRGBEncoding;
+        mesh.material.map = map;
+        mesh.material.needsUpdate = true;
+      };
+
+      if (sky.getObject3D('mesh')) {
+        applyTexture();
+      } else {
+        // Mesh not ready yet (scene just became visible); wait for A-Frame to finish.
+        sky.addEventListener('loaded', applyTexture, { once: true });
+      }
 
       // Rotate so the street faces the viewer's initial direction.
       sky.setAttribute('rotation', { x: 0, y: -(heading + 90), z: 0 });

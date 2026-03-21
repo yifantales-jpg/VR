@@ -83,4 +83,9 @@ describe('Static file serving', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain('<!DOCTYPE html>');
   });
+
+  it('includes Permissions-Policy header allowing xr-spatial-tracking', async () => {
+    const res = await request(app).get('/');
+    expect(res.headers['permissions-policy']).toBe('xr-spatial-tracking=*');
+  });
 });

@@ -38,17 +38,19 @@
 
       <div id="status-bar" class="hidden"></div>
     </div>
+  </div>
 
-    <div id="enter-vr-panel" class="hidden">
-      <button id="enter-vr-btn" class="vr-btn">🥽 Enter VR</button>
-      <p class="vr-hint">Or open this page in your Quest 3 browser</p>
-    </div>
+  <!-- ─── Enter VR overlay (shown after panorama loads, sits above the scene) -->
+  <div id="enter-vr-panel" class="hidden">
+    <button id="enter-vr-btn" class="vr-btn">🥽 Enter VR</button>
+    <p class="vr-hint">Or open this page in your Quest 3 browser</p>
   </div>
 
   <!-- ─── A-Frame VR Scene ────────────────────────────────────────────────── -->
+  <!-- The scene is always in the DOM so A-Frame/WebGL initialises with proper
+       dimensions; the UI overlay (z-index:100) covers it until a panorama loads. -->
   <a-scene
     id="vr-scene"
-    class="hidden"
     renderer="antialias: true; colorManagement: true; sortObjects: true; physicallyCorrectLights: true"
     vr-mode-ui="enabled: true; enterVRButton: #aframe-vr-btn"
     loading-screen="dotsColor: #fff; backgroundColor: #1a1a2e"

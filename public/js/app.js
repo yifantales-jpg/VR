@@ -3,13 +3,19 @@
  *
  * Main application logic for VR Street View.
  * Wires together the UI, StreetViewService, and the A-Frame scene.
+ *
+ * Workflow:
+ *  1. User pastes a Google Maps Street View URL into the input.
+ *  2. StreetViewService.parseGoogleMapsUrl() extracts the panoId or lat/lng.
+ *  3. fetchPanoData() fetches metadata via the server-side CBK proxy.
+ *  4. stitchPanorama() fetches and stitches tiles onto the canvas.
+ *  5. The canvas is applied as the A-Frame sky texture for VR viewing.
  */
 
 'use strict';
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-const STORAGE_KEY_API  = 'vrstreetview_api_key';
 const DEFAULT_TILE_ZOOM = 3;   // 8×4 tiles → 4096×2048 panorama
 
 /* ─── State ─────────────────────────────────────────────────────────────── */
@@ -20,15 +26,13 @@ let isVRMode          = false;
 
 /* ─── DOM references ─────────────────────────────────────────────────────── */
 
-const $locationInput = document.getElementById('location-input');
-const $searchBtn     = document.getElementById('search-btn');
-const $statusBar     = document.getElementById('status-bar');
-const $uiOverlay     = document.getElementById('ui-overlay');
-const $vrScene       = document.getElementById('vr-scene');
-const $enterVRPanel  = document.getElementById('enter-vr-panel');
-const $enterVRBtn    = document.getElementById('enter-vr-btn');
-const $apiKeyInput   = document.getElementById('api-key-input');
-const $saveApiKey    = document.getElementById('save-api-key');
+const $urlInput       = document.getElementById('url-input');
+const $loadBtn        = document.getElementById('load-btn');
+const $statusBar      = document.getElementById('status-bar');
+const $uiOverlay      = document.getElementById('ui-overlay');
+const $vrScene        = document.getElementById('vr-scene');
+const $enterVRPanel   = document.getElementById('enter-vr-panel');
+const $enterVRBtn     = document.getElementById('enter-vr-btn');
 const $panoramaCanvas = document.getElementById('panorama-canvas');
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -45,54 +49,51 @@ function clearStatus() {
 }
 
 function setLoading(loading) {
-  $searchBtn.disabled   = loading;
-  $searchBtn.textContent = loading ? 'Loading…' : 'Explore';
+  $loadBtn.disabled    = loading;
+  $loadBtn.textContent = loading ? 'Loading…' : 'Load';
   if (loading) setStatus('Fetching panorama…', 'info');
 }
 
-/** Persist and return the currently saved API key. */
-function getSavedApiKey() {
-  return localStorage.getItem(STORAGE_KEY_API) || '';
-}
-
-function saveApiKey(key) {
-  localStorage.setItem(STORAGE_KEY_API, key);
-}
-
-/** Initialise (or re-initialise) the StreetViewService with the current API key. */
-function initService() {
-  const key = getSavedApiKey();
-  streetViewService = new StreetViewService({
-    apiKey:   key,
-    proxyUrl: '/api',
-    tileZoom: DEFAULT_TILE_ZOOM,
-  });
+/** Return (creating if needed) the shared StreetViewService instance. */
+function getService() {
+  if (!streetViewService) {
+    streetViewService = new StreetViewService({
+      proxyUrl: '/api',
+      tileZoom: DEFAULT_TILE_ZOOM,
+    });
+  }
   return streetViewService;
 }
 
 /* ─── Panorama loading ───────────────────────────────────────────────────── */
 
 /**
- * Search for and load a Street View panorama by address / place query.
- * @param {string} query
+ * Parse the pasted Google Maps URL and load the corresponding Street View panorama.
+ * @param {string} input – Raw URL pasted by the user.
  */
-async function searchAndLoad(query) {
-  if (!query.trim()) return;
+async function loadFromUrl(input) {
+  const trimmed = input.trim();
+  if (!trimmed) return;
 
   setLoading(true);
   clearStatus();
 
   try {
-    const svc = initService();
-    await svc.loadMapsAPI();
+    const parsed = StreetViewService.parseGoogleMapsUrl(trimmed);
+    if (!parsed) {
+      throw new Error(
+        'Could not read location from that URL. Please paste a Google Maps Street View link.'
+      );
+    }
 
-    setStatus('Geocoding location…', 'info');
-    const panoData = await svc.findPanoramaByQuery(query);
+    const svc = getService();
+    setStatus('Fetching panorama data…', 'info');
+    const panoData = await svc.fetchPanoData(parsed);
 
     await loadPanorama(panoData);
 
   } catch (err) {
-    console.error('[VRStreetView] Search error:', err);
+    console.error('[VRStreetView] Load error:', err);
     setStatus(`Error: ${err.message}`, 'error');
   } finally {
     setLoading(false);
@@ -106,8 +107,8 @@ async function searchAndLoad(query) {
 async function navigateToPano(panoId) {
   try {
     showVRLoadingIndicator(true);
-    const svc = initService();
-    const panoData = await svc.findPanoramaById(panoId);
+    const svc = getService();
+    const panoData = await svc.fetchPanoData({ panoId });
     await loadPanorama(panoData, /* showScene= */ false);
   } catch (err) {
     console.error('[VRStreetView] Navigation error:', err);
@@ -128,9 +129,9 @@ async function navigateToPano(panoId) {
  */
 async function loadPanorama(panoData, showScene = true) {
   currentPanoData = panoData;
-  const svc = streetViewService;
+  const svc = getService();
 
-  setStatus(`Stitching panorama tiles for "${panoData.description}"…`, 'info');
+  setStatus(`Stitching panorama tiles…`, 'info');
 
   let tilesLoaded = 0;
   const totalTiles = Math.pow(2, DEFAULT_TILE_ZOOM) * Math.pow(2, DEFAULT_TILE_ZOOM - 1);
@@ -216,30 +217,10 @@ function showVRLoadingIndicator(show, message = 'Loading panorama…') {
 
 /* ─── Event wiring ───────────────────────────────────────────────────────── */
 
-/** Search button and Enter key. */
-$searchBtn.addEventListener('click', () => searchAndLoad($locationInput.value));
-$locationInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') searchAndLoad($locationInput.value);
-});
-
-/** Quick-link buttons. */
-document.querySelectorAll('.quick-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const location = btn.dataset.location;
-    $locationInput.value = location;
-    searchAndLoad(location);
-  });
-});
-
-/** API key save. */
-$saveApiKey.addEventListener('click', () => {
-  const key = $apiKeyInput.value.trim();
-  if (key) {
-    saveApiKey(key);
-    initService();
-    $saveApiKey.textContent = 'Saved ✓';
-    setTimeout(() => { $saveApiKey.textContent = 'Save Key'; }, 2000);
-  }
+/** Load button and Enter key. */
+$loadBtn.addEventListener('click', () => loadFromUrl($urlInput.value));
+$urlInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') loadFromUrl($urlInput.value);
 });
 
 /** Enter VR button (triggers A-Frame's VR mode). */
@@ -269,15 +250,21 @@ document.getElementById('vr-scene').addEventListener('load-pano-by-id', (evt) =>
 /* ─── Init ───────────────────────────────────────────────────────────────── */
 
 (function init() {
-  // Pre-populate the API key input from localStorage.
-  const savedKey = getSavedApiKey();
-  if (savedKey) {
-    $apiKeyInput.value = savedKey;
-    initService();
+  // Auto-load from URL fragment if launched from Android with a Maps URL:
+  // e.g. http://localhost:3000/#mapsurl=https%3A%2F%2Fwww.google.com%2Fmaps%2F...
+  const fragment = window.location.hash;
+  if (fragment) {
+    const params = new URLSearchParams(fragment.slice(1));
+    const mapsUrl = params.get('mapsurl');
+    if (mapsUrl) {
+      $urlInput.value = mapsUrl;
+      loadFromUrl(mapsUrl);
+      return;
+    }
   }
 
-  // Focus the search field for quick keyboard entry.
-  $locationInput.focus();
+  // Focus the URL input for quick paste.
+  $urlInput.focus();
 
-  console.info('[VRStreetView] App ready. Quest 3 WebXR mode supported.');
+  console.info('[VRStreetView] App ready. Paste a Google Maps Street View URL to begin.');
 })();

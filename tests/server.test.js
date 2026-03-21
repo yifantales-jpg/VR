@@ -15,7 +15,6 @@ describe('GET /health', () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
-    expect(typeof res.body.hasApiKey).toBe('boolean');
   });
 });
 
@@ -48,40 +47,26 @@ describe('GET /api/tile', () => {
   });
 });
 
-describe('GET /api/metadata', () => {
-  it('returns 503 when GOOGLE_MAPS_KEY is not set', async () => {
-    const originalKey = process.env.GOOGLE_MAPS_KEY;
-    delete process.env.GOOGLE_MAPS_KEY;
-
-    // Re-require with no key set — the route checks API_KEY at request time.
-    // Since server.js captures API_KEY at load time, we test with a fresh import.
-    const res = await request(app).get('/api/metadata?pano=abc123');
-
-    // Restore
-    if (originalKey) process.env.GOOGLE_MAPS_KEY = originalKey;
-
-    // The loaded server has no key → should 503
-    expect([400, 503]).toContain(res.status);
-  });
-
-  it('returns 400 for invalid location format', async () => {
-    process.env.GOOGLE_MAPS_KEY = 'test-key';
-    const res = await request(app).get('/api/metadata?location=not_a_coord');
+describe('GET /api/pano', () => {
+  it('returns 400 when neither panoid nor ll is provided', async () => {
+    const res = await request(app).get('/api/pano');
     expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
   });
-});
 
-describe('GET /api/geocode', () => {
-  it('returns 400 when address param is missing', async () => {
-    process.env.GOOGLE_MAPS_KEY = 'test-key';
-    const res = await request(app).get('/api/geocode');
+  it('returns 400 for invalid panoid characters', async () => {
+    const res = await request(app).get('/api/pano?panoid=../../etc/passwd');
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when address is too long', async () => {
-    process.env.GOOGLE_MAPS_KEY = 'test-key';
-    const longAddress = 'a'.repeat(300);
-    const res = await request(app).get(`/api/geocode?address=${longAddress}`);
+  it('returns 400 for invalid ll format', async () => {
+    const res = await request(app).get('/api/pano?ll=not_a_coord');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Invalid location format/);
+  });
+
+  it('returns 400 for ll with only one coordinate', async () => {
+    const res = await request(app).get('/api/pano?ll=48.858');
     expect(res.status).toBe(400);
   });
 });

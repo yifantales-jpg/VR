@@ -37,14 +37,14 @@ import com.vrstreetview.databinding.ActivityStreetviewVrBinding
  *   │  └─────────────────────────────────────────────────────────┘   │
  *   └─────────────────────────────────────────────────────────────────┘
  *
- * The web app calls back into Kotlin via [AndroidBridge] to report status
- * or request the Google Maps API key at runtime.
+ * The web app calls back into Kotlin via [AndroidBridge] to report status.
+ * No Google Maps API key is required.
  */
 class StreetViewVRActivity : AppCompatActivity() {
 
     companion object {
-        /** Intent extra key — pass the initial location query as a String. */
-        const val EXTRA_LOCATION = "extra_location"
+        /** Intent extra key — pass the Google Maps Street View URL as a String. */
+        const val EXTRA_MAPS_URL = "extra_maps_url"
 
         /**
          * Base URL of the VR Street View web server.
@@ -76,7 +76,7 @@ class StreetViewVRActivity : AppCompatActivity() {
 
         setupWebView()
 
-        val location = intent.getStringExtra(EXTRA_LOCATION) ?: ""
+        val location = intent.getStringExtra(EXTRA_MAPS_URL) ?: ""
         loadVRApp(location)
     }
 
@@ -157,15 +157,15 @@ class StreetViewVRActivity : AppCompatActivity() {
     // ── Loading ───────────────────────────────────────────────────────────
 
     /**
-     * Load the web app and pass the initial location as a URL fragment so
-     * the JavaScript app can auto-start the Street View search.
+     * Load the web app and pass the Google Maps URL as a fragment parameter so
+     * the JavaScript app can auto-start the panorama load.
      *
-     * e.g. http://10.0.2.2:3000/#location=Eiffel%20Tower%2C%20Paris
+     * e.g. http://10.0.2.2:3000/#mapsurl=https%3A%2F%2Fwww.google.com%2Fmaps%2F...
      */
-    private fun loadVRApp(location: String) {
-        val encodedLocation = android.net.Uri.encode(location)
-        val url = if (location.isNotEmpty()) {
-            "$WEB_APP_URL/#location=$encodedLocation"
+    private fun loadVRApp(mapsUrl: String) {
+        val url = if (mapsUrl.isNotEmpty()) {
+            val encoded = android.net.Uri.encode(mapsUrl)
+            "$WEB_APP_URL/#mapsurl=$encoded"
         } else {
             WEB_APP_URL
         }
@@ -195,26 +195,6 @@ class StreetViewVRActivity : AppCompatActivity() {
      * All methods run on a background thread — use runOnUiThread if touching Views.
      */
     inner class AndroidBridge {
-
-        /**
-         * Called by the web app to retrieve the Google Maps API key stored
-         * in the Android app's BuildConfig / resources (set via Gradle manifest
-         * placeholder). This avoids hard-coding the key in the web bundle.
-         *
-         * @return The API key string, or empty string if not configured.
-         */
-        @JavascriptInterface
-        fun getApiKey(): String {
-            return try {
-                val appInfo = packageManager.getApplicationInfo(
-                    packageName, android.content.pm.PackageManager.GET_META_DATA
-                )
-                appInfo.metaData?.getString("com.google.android.geo.API_KEY") ?: ""
-            } catch (e: Exception) {
-                android.util.Log.e("[VR-Bridge]", "Failed to read API key", e)
-                ""
-            }
-        }
 
         /**
          * Called by the web app when a panorama has been loaded successfully.

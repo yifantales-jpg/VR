@@ -9,8 +9,8 @@ import com.vrstreetview.databinding.ActivityMainBinding
 /**
  * MainActivity — 2-D launcher screen.
  *
- * Displays a location search field and quick-access buttons, then launches
- * [StreetViewVRActivity] when the user selects a destination.
+ * Displays a URL input field where the user can paste a Google Maps Street View
+ * URL, then launches [StreetViewVRActivity] with that URL.
  *
  * On Quest 3, this screen is shown in the flat-panel app window before the
  * user enters immersive VR mode via the "Enter VR" button.
@@ -28,40 +28,24 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        setupQuickLinks()
-        setupSearchButton()
+        setupLoadButton()
     }
 
     // ── UI setup ──────────────────────────────────────────────────────────
 
-    private fun setupQuickLinks() {
-        val locations = mapOf(
-            binding.btnEiffelTower    to "Eiffel Tower, Paris",
-            binding.btnTimesSquare    to "Times Square, New York",
-            binding.btnShibuya        to "Shibuya Crossing, Tokyo",
-            binding.btnColosseum      to "Colosseum, Rome",
-            binding.btnGrandCanyon    to "Grand Canyon, Arizona",
-            binding.btnSydneyOpera    to "Sydney Opera House, Australia",
-        )
-
-        locations.forEach { (button, location) ->
-            button.setOnClickListener { launchVR(location) }
-        }
-    }
-
-    private fun setupSearchButton() {
-        binding.btnSearch.setOnClickListener {
-            val query = binding.etLocation.text.toString().trim()
-            if (query.isNotEmpty()) {
-                launchVR(query)
+    private fun setupLoadButton() {
+        binding.btnLoad.setOnClickListener {
+            val mapsUrl = binding.etMapsUrl.text.toString().trim()
+            if (mapsUrl.isNotEmpty()) {
+                launchVR(mapsUrl)
             } else {
-                binding.etLocation.error = getString(R.string.error_empty_location)
+                binding.etMapsUrl.error = getString(R.string.error_empty_url)
             }
         }
 
         // Also launch on keyboard Enter.
-        binding.etLocation.setOnEditorActionListener { _, _, _ ->
-            binding.btnSearch.performClick()
+        binding.etMapsUrl.setOnEditorActionListener { _, _, _ ->
+            binding.btnLoad.performClick()
             true
         }
     }
@@ -69,13 +53,13 @@ class MainActivity : AppCompatActivity() {
     // ── Navigation ────────────────────────────────────────────────────────
 
     /**
-     * Launch the immersive Street View VR activity with the given location query.
+     * Launch the immersive Street View VR activity with the given Google Maps URL.
      *
-     * @param location Human-readable address or place name.
+     * @param mapsUrl Google Maps Street View URL pasted by the user.
      */
-    private fun launchVR(location: String) {
+    private fun launchVR(mapsUrl: String) {
         val intent = Intent(this, StreetViewVRActivity::class.java).apply {
-            putExtra(StreetViewVRActivity.EXTRA_LOCATION, location)
+            putExtra(StreetViewVRActivity.EXTRA_MAPS_URL, mapsUrl)
         }
         startActivity(intent)
     }

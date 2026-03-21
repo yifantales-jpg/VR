@@ -79,7 +79,7 @@ app.use(
         scriptSrc:   ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         styleSrc:    ["'self'", "'unsafe-inline'"],
         imgSrc:      ["'self'", 'data:', 'blob:', 'https:', 'http:'],
-        connectSrc:  ["'self'"],
+        connectSrc:  ["'self'", 'https://cdn.aframe.io'],
         workerSrc:   ["'self'", 'blob:'],
         frameSrc:    ["'none'"],
         objectSrc:   ["'none'"],

@@ -8,9 +8,15 @@
  *  2. Proxy Street View panorama tile requests to Google's CBK tile service.
  *     This avoids CORS errors in the browser. No API key is required.
  *  3. Proxy CBK panorama metadata (JSON) requests. No API key required.
+ *  4. Serve over HTTPS (required for WebXR on Quest 3 and other devices).
+ *     A self-signed certificate is generated automatically when no certificate
+ *     is provided. For production, supply SSL_CERT_FILE and SSL_KEY_FILE.
  *
  * Environment variables:
- *   PORT – TCP port (default: 3000).
+ *   PORT        – HTTP port (default: 3000).
+ *   HTTPS_PORT  – HTTPS port (default: 3443).
+ *   SSL_CERT_FILE – Path to PEM certificate file (optional; auto-generated if absent).
+ *   SSL_KEY_FILE  – Path to PEM private key file (optional; auto-generated if absent).
  *
  * Endpoints:
  *   GET  /api/tile?panoid=…&zoom=…&x=…&y=…
@@ -28,14 +34,18 @@
 
 'use strict';
 
-const express   = require('express');
-const path      = require('path');
-const fetch     = require('node-fetch');
-const helmet    = require('helmet');
-const rateLimit = require('express-rate-limit');
+const https      = require('https');
+const fs         = require('fs');
+const express    = require('express');
+const path       = require('path');
+const fetch      = require('node-fetch');
+const helmet     = require('helmet');
+const rateLimit  = require('express-rate-limit');
+const selfsigned = require('selfsigned');
 
-const app  = express();
-const PORT = process.env.PORT || 3000;
+const app        = express();
+const PORT       = process.env.PORT       || 3000;
+const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 
 /* ─── Rate limiting ──────────────────────────────────────────────────────── */
 
@@ -234,10 +244,74 @@ app.get('*', (_req, res) => {
 
 /* ─── Start server ───────────────────────────────────────────────────────── */
 
+/**
+ * Load or auto-generate a TLS certificate for the HTTPS server.
+ *
+ * Priority:
+ *  1. SSL_CERT_FILE + SSL_KEY_FILE environment variables → use provided files.
+ *  2. No files provided → generate a self-signed certificate in memory.
+ *
+ * The self-signed certificate is valid for localhost and common loopback
+ * addresses. Browsers will show a "Not secure" warning for self-signed certs;
+ * users must accept the warning once (or install the cert as trusted).
+ */
+async function loadOrGenerateTlsCredentials() {
+  const certFile = process.env.SSL_CERT_FILE;
+  const keyFile  = process.env.SSL_KEY_FILE;
+
+  if (certFile && keyFile) {
+    try {
+      return {
+        cert: fs.readFileSync(certFile, 'utf8'),
+        key:  fs.readFileSync(keyFile,  'utf8'),
+      };
+    } catch (err) {
+      console.warn(`[VRStreetView] Could not read SSL certificate files: ${err.message}`);
+      console.warn('[VRStreetView] Falling back to auto-generated self-signed certificate.');
+    }
+  }
+
+  // Generate a self-signed certificate valid for one year, covering localhost
+  // and common local-network access patterns.
+  const attrs = [{ name: 'commonName', value: 'VR Street View (self-signed)' }];
+  const opts  = {
+    days:      365,
+    algorithm: 'sha256',
+    extensions: [
+      {
+        name:     'subjectAltName',
+        altNames: [
+          { type: 2, value: 'localhost' },
+          { type: 7, ip: '127.0.0.1' },
+          { type: 7, ip: '::1' },
+        ],
+      },
+    ],
+  };
+
+  const pems = await selfsigned.generate(attrs, opts);
+  return { cert: pems.cert, key: pems.private };
+}
+
 if (require.main === module) {
+  // HTTP server — keeps plain-HTTP access working alongside HTTPS.
   app.listen(PORT, () => {
-    console.log(`[VRStreetView] Server running on http://localhost:${PORT}`);
-    console.log(`[VRStreetView] Open in Quest 3 browser or at http://localhost:${PORT}`);
+    console.log(`[VRStreetView] HTTP  server running on http://localhost:${PORT}`);
+  });
+
+  // HTTPS server — required for WebXR on Quest 3 and modern browsers.
+  loadOrGenerateTlsCredentials().then((tlsCreds) => {
+    https.createServer(tlsCreds, app).listen(HTTPS_PORT, () => {
+      console.log(`[VRStreetView] HTTPS server running on https://localhost:${HTTPS_PORT}`);
+      console.log(`[VRStreetView] Open in Quest 3 browser: https://<your-pc-ip>:${HTTPS_PORT}`);
+      if (!process.env.SSL_CERT_FILE) {
+        console.log('[VRStreetView] Using auto-generated self-signed certificate.');
+        console.log('[VRStreetView] Accept the browser security warning to proceed.');
+      }
+    });
+  }).catch((err) => {
+    console.error('[VRStreetView] Failed to start HTTPS server:', err.message);
+    process.exit(1);
   });
 }
 

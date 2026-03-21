@@ -7,8 +7,10 @@
 
 'use strict';
 
-const request = require('supertest');
-const app     = require('../server');
+const https      = require('https');
+const request    = require('supertest');
+const selfsigned = require('selfsigned');
+const app        = require('../server');
 
 describe('GET /health', () => {
   it('returns 200 with status ok', async () => {
@@ -87,5 +89,36 @@ describe('Static file serving', () => {
   it('includes Permissions-Policy header allowing xr-spatial-tracking', async () => {
     const res = await request(app).get('/');
     expect(res.headers['permissions-policy']).toBe('xr-spatial-tracking=*');
+  });
+});
+
+describe('HTTPS server', () => {
+  it('serves requests over HTTPS with a self-signed certificate', (done) => {
+    selfsigned.generate(
+      [{ name: 'commonName', value: 'localhost' }],
+      { days: 1, algorithm: 'sha256' }
+    ).then((pems) => {
+      const tlsServer = https.createServer({ cert: pems.cert, key: pems.private }, app);
+
+      tlsServer.listen(0, () => {
+        const port = tlsServer.address().port;
+
+        // Use the self-signed certificate as the trusted CA so we don't need
+        // to disable certificate validation entirely.
+        const req = https.get(
+          { hostname: '127.0.0.1', port, path: '/health', ca: pems.cert },
+          (res) => {
+            expect(res.statusCode).toBe(200);
+            let body = '';
+            res.on('data', (chunk) => { body += chunk; });
+            res.on('end', () => {
+              expect(JSON.parse(body).status).toBe('ok');
+              tlsServer.close(done);
+            });
+          }
+        );
+        req.on('error', (err) => { tlsServer.close(() => done(err)); });
+      });
+    }).catch(done);
   });
 });

@@ -97,6 +97,32 @@ describe('GET /api/photo', () => {
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Only Google image hosting/);
   });
+
+  it('returns 400 for lh3.googleusercontent.com with a path prefix attack', async () => {
+    const res = await request(app).get('/api/photo?url=https://lh3.googleusercontent.com.evil.com/image');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Only Google image hosting/);
+  });
+
+  // The proxy now accepts lh4, lh5, etc. in addition to lh3 — all are
+  // legitimate Google image-hosting subdomains used for Photo Spheres.
+  it('accepts lh4.googleusercontent.com URLs (passes domain check)', async () => {
+    // The proxy will attempt to fetch from Google; we only verify it passes the
+    // domain-validation step (i.e., does NOT return 400) rather than a successful
+    // image fetch (which would require a live network call).
+    const res = await request(app).get(
+      '/api/photo?url=https://lh4.googleusercontent.com/gpms-cs-s/SomePhotoId=w4096-h2048-k-no'
+    );
+    // Must not be rejected as an invalid domain (400).
+    expect(res.status).not.toBe(400);
+  });
+
+  it('accepts lh5.googleusercontent.com URLs (passes domain check)', async () => {
+    const res = await request(app).get(
+      '/api/photo?url=https://lh5.googleusercontent.com/gpms-cs-s/SomePhotoId=w4096-h2048-k-no'
+    );
+    expect(res.status).not.toBe(400);
+  });
 });
 
 describe('Static file serving', () => {

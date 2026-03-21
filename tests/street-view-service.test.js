@@ -120,6 +120,19 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
     expect(result.photoUrl).toBe('https://lh3.googleusercontent.com/gpms-cs-s/TestPhotoId');
   });
 
+  it('extracts photoUrl from a Photo Sphere hosted on lh4.googleusercontent.com', () => {
+    // Google may serve Photo Spheres from lh4, lh5, lh6, etc. — all should be detected.
+    const url =
+      'https://www.google.com/maps/@31.8425117,35.4112367,3a,90y,203.46h,1t' +
+      '/data=!3m8!1e1!3m6!1sPANO456!2e10!3e11' +
+      '!6shttps:%2F%2Flh4.googleusercontent.com%2Fgpms-cs-s%2FAnotherPhotoId' +
+      '%3Dw900-h600-k-no!7i14400!8i7200';
+    const result = StreetViewService.parseGoogleMapsUrl(url);
+    expect(result).not.toBeNull();
+    expect(result.panoId).toBe('PANO456');
+    expect(result.photoUrl).toBe('https://lh4.googleusercontent.com/gpms-cs-s/AnotherPhotoId');
+  });
+
   it('returns only panoId (no photoUrl) for a standard Street View URL', () => {
     const url = 'https://www.google.com/maps/@48.8584,2.2945,3a,75y,90h,90t/data=!3m6!1e1!3m4!1sABC123XYZ!2e0!7i13312!8i6656';
     const result = StreetViewService.parseGoogleMapsUrl(url);
@@ -128,7 +141,7 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
   });
 
   it('ignores non-Google photo hosting URLs in !6s', () => {
-    // A !6s value that does NOT point to lh3.googleusercontent.com should be ignored.
+    // A !6s value that does NOT point to lhN.googleusercontent.com should be ignored.
     const url =
       'https://www.google.com/maps/@48.8584,2.2945,3a,75y,90h,90t' +
       '/data=!3m6!1e1!3m4!1sABC123XYZ!2e0!6shttps:%2F%2Fexample.com%2Fimage.jpg!7i13312!8i6656';

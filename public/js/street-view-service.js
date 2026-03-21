@@ -240,7 +240,7 @@ class StreetViewService {
     if (!m) return null;
     try {
       const rawUrl = decodeURIComponent(m[1]);
-      if (!rawUrl.startsWith('https://lh3.googleusercontent.com/')) return null;
+      if (!/^https:\/\/lh\d+\.googleusercontent\.com\//.test(rawUrl)) return null;
       // Strip the size/transform suffix that follows the bare `=` separator.
       return rawUrl.replace(/=.*$/, '');
     } catch {

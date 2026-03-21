@@ -42,8 +42,8 @@ function showDebug(message, type = 'error') {
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
 const DEFAULT_TILE_ZOOM       = 4;     // 16×8 tiles → 8192×4096 panorama (CBK Street View)
-const PHOTO_SPHERE_WIDTH      = 16384; // request width for Photo Sphere equirectangular; Google CDN returns the full original (up to ~14400 px for high-res Photo Spheres) when this exceeds the source size
-const PHOTO_SPHERE_HEIGHT     = 8192;  // request height (2:1 aspect ratio); paired with PHOTO_SPHERE_WIDTH to cover the largest available Photo Spheres
+const PHOTO_SPHERE_WIDTH      = 4096;  // request width for Photo Sphere equirectangular image
+const PHOTO_SPHERE_HEIGHT     = 2048;  // request height (2:1 aspect ratio)
 
 /* ─── State ─────────────────────────────────────────────────────────────── */
 

@@ -49,7 +49,7 @@ class StreetViewService {
    *  - lat/lng q param:   …?q=lat,lng
    *
    * @param {string} url – Any Google Maps Street View URL.
-   * @returns {{ panoId: string, photoUrl?: string }|{ lat: number, lng: number, heading?: number }|null}
+   * @returns {{ panoId: string, photoUrl?: string, photoWidth?: number, photoHeight?: number }|{ lat: number, lng: number, heading?: number }|null}
    */
   static parseGoogleMapsUrl(url) {
     try {
@@ -65,7 +65,11 @@ class StreetViewService {
           // User-contributed Photo Spheres embed a direct Google image URL in !6s.
           // When present, pass it through so the caller can skip the CBK tile proxy.
           const photoUrl = StreetViewService._extractGooglePhotoUrl(pathDataMatch[1]);
-          return photoUrl ? { panoId, photoUrl } : { panoId };
+          if (photoUrl) {
+            const dims = StreetViewService._extractPhotoDimensions(pathDataMatch[1]);
+            return { panoId, photoUrl, ...dims };
+          }
+          return { panoId };
         }
       }
 
@@ -76,7 +80,11 @@ class StreetViewService {
         if (m && m[1]) {
           const panoId = m[1];
           const photoUrl = StreetViewService._extractGooglePhotoUrl(data);
-          return photoUrl ? { panoId, photoUrl } : { panoId };
+          if (photoUrl) {
+            const dims = StreetViewService._extractPhotoDimensions(data);
+            return { panoId, photoUrl, ...dims };
+          }
+          return { panoId };
         }
       }
 
@@ -132,7 +140,7 @@ class StreetViewService {
    * @param {{ panoId?: string, lat?: number, lng?: number, photoUrl?: string }} location
    * @returns {Promise<PanoramaData>}
    */
-  async fetchPanoData({ panoId, lat, lng, photoUrl } = {}) {
+  async fetchPanoData({ panoId, lat, lng, photoUrl, photoWidth, photoHeight } = {}) {
     // User-contributed Photo Sphere: the equirectangular image URL is embedded
     // directly in the Maps URL; skip the CBK metadata proxy entirely.
     if (photoUrl) {
@@ -144,6 +152,8 @@ class StreetViewService {
         copyright:   '',
         tiles:       null,
         photoUrl,
+        photoWidth,
+        photoHeight,
       };
     }
 
@@ -234,7 +244,7 @@ class StreetViewService {
    * a `!6s…` segment of the Maps data blob. The URL is percent-encoded and
    * includes size/transform parameters after a bare `=` separator; this method
    * decodes the URL and strips those parameters so the caller can request its
-   * own preferred size (e.g. `=w4096-h2048-k-no`).
+   * own preferred size (e.g. `=w8192-h4096-k-no`).
    *
    * Returns null when the data string contains no usable Google photo URL.
    *
@@ -252,6 +262,32 @@ class StreetViewService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Extract the native panorama dimensions from a Maps data string.
+   *
+   * Photo Sphere URLs embed the source image dimensions in `!7i<width>` and
+   * `!8i<height>` segments. These are used to request the image at its native
+   * resolution rather than a fixed constant, preventing Google's image-serving
+   * from rejecting an oversized request (e.g. when the constant exceeds the
+   * native width, Google may return an error instead of the image).
+   *
+   * Returns an empty object when the segments are absent.
+   *
+   * @param {string} dataStr – Raw (path-encoded) or pre-decoded Maps data blob.
+   * @returns {{ photoWidth?: number, photoHeight?: number }}
+   */
+  static _extractPhotoDimensions(dataStr) {
+    const wMatch = dataStr.match(/!7i(\d+)/);
+    const hMatch = dataStr.match(/!8i(\d+)/);
+    if (wMatch && hMatch) {
+      return {
+        photoWidth:  parseInt(wMatch[1], 10),
+        photoHeight: parseInt(hMatch[1], 10),
+      };
+    }
+    return {};
   }
 
   /**
@@ -324,7 +360,9 @@ class StreetViewService {
  * @property {Array<LinkData>}     links
  * @property {string}              copyright
  * @property {Object|null}         tiles
- * @property {string}              [photoUrl]  – Direct equirectangular image URL (Photo Spheres only).
+ * @property {string}              [photoUrl]     – Direct equirectangular image URL (Photo Spheres only).
+ * @property {number}              [photoWidth]   – Native image width in pixels (Photo Spheres only).
+ * @property {number}              [photoHeight]  – Native image height in pixels (Photo Spheres only).
  */
 
 /**

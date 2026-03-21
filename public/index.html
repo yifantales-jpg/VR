@@ -139,6 +139,36 @@
   <!-- Hidden button used by A-Frame's VR-mode-ui -->
   <button id="aframe-vr-btn" style="display:none"></button>
 
+  <!-- ─── On-page debug log (auto-shown when JS errors occur) ──────────────── -->
+  <div id="debug-log" class="hidden"></div>
+
+  <!-- Early error capture – runs before app scripts so init errors are visible -->
+  <script>
+    (function () {
+      function addEntry(msg, type) {
+        var el = document.getElementById('debug-log');
+        if (!el) return;
+        el.classList.remove('hidden');
+        var entry = document.createElement('div');
+        entry.className = 'debug-entry debug-' + (type || 'error');
+        entry.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+        el.appendChild(entry);
+        el.scrollTop = el.scrollHeight;
+      }
+      window._vrDebug = { show: addEntry };
+      window.addEventListener('error', function (e) {
+        var file = e.filename ? e.filename.split('/').pop() : 'unknown';
+        addEntry('Uncaught error in ' + file + ':' + e.lineno + ' - ' + e.message);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var reason = e.reason instanceof Error
+          ? e.reason.message
+          : String(e.reason != null ? e.reason : 'Unknown rejection');
+        addEntry('Unhandled promise rejection: ' + reason);
+      });
+    }());
+  </script>
+
   <!-- App scripts -->
   <script src="js/street-view-service.js"></script>
   <script src="js/panorama-components.js"></script>

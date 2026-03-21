@@ -95,16 +95,12 @@
         wasd-controls="enabled: false"
         fov="90"
       >
-        <!-- Gaze reticle for controller-free navigation -->
+        <!-- Gaze cursor for controller-free navigation (no visible reticle) -->
         <a-entity
           id="gaze-cursor"
           cursor="fuse: true; fuseTimeout: 1500; rayOrigin: entity"
-          geometry="primitive: ring; radiusInner: 0.008; radiusOuter: 0.013; segmentsTheta: 32"
-          material="color: white; shader: flat; opacity: 0.85"
           position="0 0 -0.75"
           raycaster="objects: .nav-arrow; interval: 100; showLine: false"
-          animation__fusing="property: scale; startEvents: fusing; to: 1.5 1.5 1; dur: 1500; easing: linear"
-          animation__unfusing="property: scale; startEvents: mouseleave; to: 1 1 1; dur: 100"
         ></a-entity>
       </a-camera>
 

@@ -19,8 +19,8 @@
  *   zoom 0 → 1 column × 1 row
  *   zoom 1 → 2 × 1
  *   zoom 2 → 4 × 2
- *   zoom 3 → 8 × 4   ← default (4096 × 2048 result, good quality)
- *   zoom 4 → 16 × 8
+ *   zoom 3 → 8 × 4   (4096 × 2048 result)
+ *   zoom 4 → 16 × 8  ← maximum (8192 × 4096 result — highest quality available)
  */
 
 'use strict';

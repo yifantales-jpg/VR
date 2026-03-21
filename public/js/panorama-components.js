@@ -149,6 +149,12 @@ AFRAME.registerComponent('street-view-scene', {
         if (!mesh) return; // mesh not yet ready; will be applied via 'loaded' event
         const map = new THREE.CanvasTexture(canvas);
         map.encoding = THREE.sRGBEncoding;
+        map.minFilter = THREE.LinearFilter;
+        map.generateMipmaps = false;
+        const renderer = this.el.sceneEl && this.el.sceneEl.renderer;
+        if (renderer) {
+          map.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        }
         mesh.material.map = map;
         mesh.material.needsUpdate = true;
       };
@@ -250,6 +256,7 @@ AFRAME.registerComponent('vr-controller-input', {
 
     this._onThumbstick = this._onThumbstick.bind(this);
     this._onXButton    = this._onXButton.bind(this);
+    this._onWheel      = this._onWheel.bind(this);
 
     this._leftHand  = document.getElementById('left-hand');
     this._rightHand = document.getElementById('right-hand');
@@ -261,6 +268,8 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._rightHand) {
       this._rightHand.addEventListener('thumbstickmoved', this._onThumbstick);
     }
+
+    this.el.sceneEl.addEventListener('wheel', this._onWheel, { passive: true });
   },
 
   remove() {
@@ -271,6 +280,8 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._rightHand) {
       this._rightHand.removeEventListener('thumbstickmoved', this._onThumbstick);
     }
+
+    this.el.sceneEl.removeEventListener('wheel', this._onWheel);
   },
 
   _onThumbstick(evt) {
@@ -295,17 +306,42 @@ AFRAME.registerComponent('vr-controller-input', {
     if (Math.abs(y) >= dz && now - this._lastZoom >= this.data.zoomCooldown) {
       const camera = this.el.querySelector('[camera]');
       if (camera) {
-        const currentFov = parseFloat(camera.getAttribute('fov')) || 90;
+        const cameraData = camera.getAttribute('camera');
+        const currentFov = (cameraData && cameraData.fov) || 90;
         // Positive y = thumbstick down → zoom out (increase FOV)
         const newFov = THREE.MathUtils.clamp(
           currentFov + (y > 0 ? this.data.zoomStep : -this.data.zoomStep),
           this.data.fovMin,
           this.data.fovMax
         );
-        camera.setAttribute('fov', newFov);
+        camera.setAttribute('camera', 'fov', newFov);
       }
       this._lastZoom = now;
     }
+  },
+
+  _onWheel(evt) {
+    // Skip when in an immersive VR session — the headset controls projection.
+    if (this.el.sceneEl && this.el.sceneEl.is('vr-mode')) return;
+
+    const now = Date.now();
+    if (now - this._lastZoom < this.data.zoomCooldown) return;
+
+    const camera = this.el.querySelector('[camera]');
+    if (!camera) return;
+
+    const cameraData = camera.getAttribute('camera');
+    const currentFov = (cameraData && cameraData.fov) || 90;
+    // Scroll up (negative deltaY) = zoom in (decrease FOV)
+    // Scroll down (positive deltaY) = zoom out (increase FOV)
+    const delta = evt.deltaY > 0 ? this.data.zoomStep : -this.data.zoomStep;
+    const newFov = THREE.MathUtils.clamp(
+      currentFov + delta,
+      this.data.fovMin,
+      this.data.fovMax
+    );
+    camera.setAttribute('camera', 'fov', newFov);
+    this._lastZoom = now;
   },
 
   _onXButton() {

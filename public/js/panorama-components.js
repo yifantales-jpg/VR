@@ -148,9 +148,15 @@ AFRAME.registerComponent('street-view-scene', {
         const mesh = sky.getObject3D('mesh');
         if (!mesh) return; // mesh not yet ready; will be applied via 'loaded' event
         const map = new THREE.CanvasTexture(canvas);
-        map.encoding = THREE.sRGBEncoding;
-        map.minFilter = THREE.LinearMipmapLinearFilter;
-        map.generateMipmaps = true;
+        // Three.js r152+ deprecated texture.encoding in favour of texture.colorSpace.
+        // Use SRGBColorSpace (replaces sRGBEncoding) to match A-Frame 1.5.0's own
+        // renderer color-management pipeline (renderer.outputColorSpace = SRGBColorSpace).
+        map.colorSpace    = THREE.SRGBColorSpace;
+        // Bilinear filtering without mipmaps: the GPU always samples from the
+        // full-resolution panorama texture.  Trilinear + mipmaps can select an
+        // overly-blurred mip level for the sky sphere, reducing apparent sharpness.
+        map.minFilter     = THREE.LinearFilter;
+        map.generateMipmaps = false;
         const renderer = this.el.sceneEl && this.el.sceneEl.renderer;
         if (renderer) {
           map.anisotropy = renderer.capabilities.getMaxAnisotropy();
@@ -351,3 +357,42 @@ AFRAME.registerComponent('vr-controller-input', {
     }
   },
 });
+
+/* ─── Patch: oculus-touch-controls quaternion guard ─────────────────────── */
+
+/**
+ * A-Frame 1.5.0 has a bug in oculus-touch-controls where button events for
+ * the 'none' mapped slot (WebXR button index 2) reach onButtonChangedV3orPROorPlus
+ * and attempt to read buttonObjects['none'].quaternion — but buttonObjects['none']
+ * is undefined, producing:
+ *   "Uncaught TypeError: Cannot read properties of undefined (reading 'quaternion')"
+ *
+ * Similarly, updateThumbstickTouchV3orPROorPlus accesses buttonObjects.thumbstickXAxis
+ * and .thumbstickYAxis without checking they exist (e.g. before the model loads).
+ *
+ * Fix: wrap both methods with guards that bail out when the referenced
+ * buttonObjects entry is absent.
+ */
+(function patchOculusTouchControls() {
+  const registration = AFRAME.components['oculus-touch-controls'];
+  if (!registration) { return; }
+
+  const proto = registration.Component.prototype;
+
+  // ── onButtonChangedV3orPROorPlus ───────────────────────────────────────
+  const _origButtonChanged = proto.onButtonChangedV3orPROorPlus;
+  proto.onButtonChangedV3orPROorPlus = function (evt) {
+    const button = this.mapping[this.data.hand].buttons[evt.detail.id];
+    if (!this.buttonObjects || !this.buttonObjects[button]) { return; }
+    _origButtonChanged.call(this, evt);
+  };
+
+  // ── updateThumbstickTouchV3orPROorPlus ────────────────────────────────
+  const _origThumbstick = proto.updateThumbstickTouchV3orPROorPlus;
+  proto.updateThumbstickTouchV3orPROorPlus = function (evt) {
+    if (!this.buttonObjects ||
+        !this.buttonObjects.thumbstickXAxis ||
+        !this.buttonObjects.thumbstickYAxis) { return; }
+    _origThumbstick.call(this, evt);
+  };
+}());

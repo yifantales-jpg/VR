@@ -258,6 +258,11 @@ function transitionToVRScene() {
       navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
         if (!supported) return;
         const scene = document.getElementById('vr-scene');
+        // Render the XR framebuffer at 1.5× the device-recommended resolution
+        // for sharper output; must be called before the session is created.
+        if (scene && scene.renderer && scene.renderer.xr) {
+          scene.renderer.xr.setFramebufferScaleFactor(1.5);
+        }
         try {
           if (scene && !scene.is('vr-mode')) scene.enterVR();
         } catch (err) {

@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &1
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 95eb14be8d27c4842b66e4e6d6d7b56e, type: 3}
+  m_Name: OculusSettings
+  m_EditorClassIdentifier:
+  m_TargetDevice: 16
+  m_StereoRenderingModeAndroid: 2
+  m_LowOverheadMode: 1
+  m_OptimizeBufferDiscards: 1
+  m_PhaseSync: 1
+  m_FoveatedRenderingMethod: 1
+  m_FFRLevel: 2
+  m_EnableEyeTrackedFoveatedRendering: 0
+  m_DepthSubmission: 0
+  m_SuggestedCpuPerfLevel: 2
+  m_SuggestedGpuPerfLevel: 3
+  m_HandTrackingSupport: 1
+  m_HandTrackingFrequency: 0
+  m_HandTrackingVersion: 1
+  m_FocusAware: 1
+  m_SystemSplashScreen: {fileID: 0}
+  m_InsightPassthroughEnabled: 0
+  m_SharpnessLevel: 0
+  m_SubsampledLayout: 0
+  m_SpaceWarp: 0
+  m_DepthAPI: 0

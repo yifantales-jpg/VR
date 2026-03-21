@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Explicitly blocks cleartext HTTP traffic and allows only HTTPS connections
+    to the Google Maps APIs and Street View tile CDN.
+    Quest 3 runs Android 12+ which enforces secure-by-default networking.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <!-- Google Maps APIs -->
+        <domain includeSubdomains="true">maps.googleapis.com</domain>
+        <!-- Street View panorama tile CDN -->
+        <domain includeSubdomains="true">streetviewpixels-pa.googleapis.com</domain>
+        <domain includeSubdomains="true">cbk0.google.com</domain>
+    </domain-config>
+</network-security-config>

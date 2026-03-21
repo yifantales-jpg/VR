@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.defaultcompany.streetviewvr"
+          android:versionCode="1"
+          android:versionName="1.0"
+          android:installLocation="auto">
+
+    <!--
+        Android manifest for Street View VR on Meta Quest 3.
+        Declares the permissions and features required to run the app.
+    -->
+
+    <!-- Internet access for Street View API requests -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Vibration for controller haptics -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Declare that this is a VR app (required for Quest submission) -->
+    <uses-feature android:name="android.hardware.vr.headtracking"
+                  android:required="true"
+                  android:version="1" />
+
+    <!-- Quest 3 hand tracking -->
+    <uses-feature android:name="oculus.software.handtracking"
+                  android:required="false" />
+
+    <application
+        android:label="Street View VR"
+        android:icon="@mipmap/app_icon"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+        android:resizeableActivity="false"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <activity
+            android:name="com.unity3d.player.UnityPlayerActivity"
+            android:label="Street View VR"
+            android:screenOrientation="landscape"
+            android:launchMode="singleTask"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Mark as a VR app in the Quest store -->
+                <category android:name="com.oculus.intent.category.VR" />
+            </intent-filter>
+
+            <!-- Meta XR SDK configuration -->
+            <meta-data android:name="com.oculus.supportedDevices"
+                       android:value="quest3" />
+
+            <!-- Hand tracking -->
+            <meta-data android:name="com.oculus.handtracking.frequency"
+                       android:value="HIGH" />
+            <meta-data android:name="com.oculus.handtracking.version"
+                       android:value="V2.0" />
+
+        </activity>
+
+    </application>
+</manifest>

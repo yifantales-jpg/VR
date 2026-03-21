@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "com.unity.inputsystem": "1.7.0",
+    "com.unity.xr.management": "4.4.0",
+    "com.unity.xr.openxr": "1.9.1",
+    "com.unity.xr.interaction.toolkit": "2.5.2",
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.ugui": "1.0.0",
+    "com.unity.textmeshpro": "3.0.6",
+    "com.meta.xr.sdk.core": "60.0.0",
+    "com.meta.xr.sdk.interaction": "60.0.0",
+    "com.meta.xr.sdk.interaction.ovr": "60.0.0",
+    "com.unity.render-pipelines.universal": "14.0.9"
+  },
+  "scopedRegistries": [
+    {
+      "name": "Meta XR SDK",
+      "url": "https://npm.developer.oculus.com",
+      "scopes": [
+        "com.meta.xr"
+      ]
+    }
+  ]
+}

@@ -66,7 +66,7 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc:  ["'self'"],
-        scriptSrc:   ["'self'", "'unsafe-inline'", 'https://aframe.io'],
+        scriptSrc:   ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         styleSrc:    ["'self'", "'unsafe-inline'"],
         imgSrc:      ["'self'", 'data:', 'blob:', 'https:', 'http:'],
         connectSrc:  ["'self'"],

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">VR Street View</string>
-    <string name="subtitle">Powered by Google Street View · Meta Quest 3</string>
-    <string name="hint_location">Enter address, landmark, or city…</string>
-    <string name="btn_explore">🌍 Explore in VR</string>
-    <string name="label_quick_links">Quick destinations</string>
-    <string name="instruction_enter_vr">Select a destination, then press Enter VR on the next screen</string>
+    <string name="subtitle">Paste a Google Maps Street View URL to explore in VR</string>
+    <string name="hint_maps_url">Paste Google Maps Street View URL…</string>
+    <string name="hint_url_instructions">Open Google Maps → navigate to any Street View location → copy the URL from your browser and paste it above.</string>
+    <string name="btn_load_vr">🥽 Load in VR</string>
+    <string name="instruction_enter_vr">Paste a Street View URL, then press Load in VR</string>
     <string name="loading_vr">Loading VR experience…</string>
-    <string name="error_empty_location">Please enter a location</string>
+    <string name="error_empty_url">Please paste a Google Maps URL</string>
 </resources>

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    activity_main.xml — Location search launcher screen.
+    activity_main.xml — Google Maps URL input screen.
     Displayed in Quest 3's flat-panel window before entering immersive VR.
+    The user pastes a Google Maps Street View URL, then presses "Load in VR".
 -->
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -33,14 +34,15 @@
         android:text="@string/subtitle"
         android:textSize="14sp"
         android:textColor="@color/text_muted"
+        android:gravity="center"
         android:layout_marginTop="4dp"
         app:layout_constraintTop_toBottomOf="@id/tvTitle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
-    <!-- Search card -->
+    <!-- URL input card -->
     <com.google.android.material.card.MaterialCardView
-        android:id="@+id/searchCard"
+        android:id="@+id/urlCard"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginHorizontal="32dp"
@@ -59,109 +61,39 @@
             android:padding="20dp">
 
             <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilLocation"
+                android:id="@+id/tilMapsUrl"
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="@string/hint_location">
+                android:hint="@string/hint_maps_url">
 
                 <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etLocation"
+                    android:id="@+id/etMapsUrl"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="text"
-                    android:imeOptions="actionSearch"
+                    android:inputType="textUri"
+                    android:imeOptions="actionGo"
                     android:textColor="@color/text_primary"
-                    android:maxLines="1" />
+                    android:maxLines="3" />
             </com.google.android.material.textfield.TextInputLayout>
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSearch"
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/btn_explore"
+                android:layout_marginTop="10dp"
+                android:text="@string/hint_url_instructions"
+                android:textSize="12sp"
+                android:textColor="@color/text_muted" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnLoad"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/btn_load_vr"
                 android:textSize="16sp"
                 app:backgroundTint="@color/accent"
                 app:cornerRadius="8dp" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-
-    <!-- Quick-link destination buttons -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/quickLinksCard"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="32dp"
-        android:layout_marginTop="20dp"
-        app:cardBackgroundColor="@color/bg_panel"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="4dp"
-        app:layout_constraintTop_toBottomOf="@id/searchCard"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="20dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/label_quick_links"
-                android:textColor="@color/text_muted"
-                android:textSize="13sp"
-                android:layout_marginBottom="12dp" />
-
-            <com.google.android.material.chip.ChipGroup
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
-
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/btnEiffelTower"
-                    style="@style/Widget.MaterialComponents.Chip.Action"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Eiffel Tower" />
-
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/btnTimesSquare"
-                    style="@style/Widget.MaterialComponents.Chip.Action"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Times Square" />
-
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/btnShibuya"
-                    style="@style/Widget.MaterialComponents.Chip.Action"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Shibuya" />
-
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/btnColosseum"
-                    style="@style/Widget.MaterialComponents.Chip.Action"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Colosseum" />
-
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/btnGrandCanyon"
-                    style="@style/Widget.MaterialComponents.Chip.Action"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Grand Canyon" />
-
-                <com.google.android.material.chip.Chip
-                    android:id="@+id/btnSydneyOpera"
-                    style="@style/Widget.MaterialComponents.Chip.Action"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Sydney Opera" />
-
-            </com.google.android.material.chip.ChipGroup>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 

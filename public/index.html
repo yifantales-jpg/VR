@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VR Street View — Quest 3</title>
-  <meta name="description" content="Immersive Google Street View for Meta Quest 3">
+  <meta name="description" content="Immersive Google Street View VR projection for Meta Quest 3">
 
   <!-- A-Frame WebXR library -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
@@ -18,52 +18,25 @@
   <div id="ui-overlay">
     <div id="header">
       <h1>🌍 VR Street View</h1>
-      <p class="subtitle">Powered by Google Street View · Meta Quest 3</p>
+      <p class="subtitle">Paste a Google Maps Street View URL to explore in VR</p>
     </div>
 
     <div id="search-panel">
       <div class="input-row">
         <input
           type="text"
-          id="location-input"
-          placeholder="Enter address, landmark, or city…"
+          id="url-input"
+          placeholder="Paste Google Maps Street View URL here…"
           autocomplete="off"
         />
-        <button id="search-btn" class="primary-btn">Explore</button>
+        <button id="load-btn" class="primary-btn">Load</button>
       </div>
 
-      <div id="quick-links">
-        <span class="quick-label">Try:</span>
-        <button class="quick-btn" data-location="Eiffel Tower, Paris">Eiffel Tower</button>
-        <button class="quick-btn" data-location="Times Square, New York">Times Square</button>
-        <button class="quick-btn" data-location="Shibuya Crossing, Tokyo">Shibuya</button>
-        <button class="quick-btn" data-location="Colosseum, Rome">Colosseum</button>
-      </div>
+      <p class="url-hint">
+        Open Google Maps → navigate to any Street View location → copy the URL from your browser and paste it above.
+      </p>
 
       <div id="status-bar" class="hidden"></div>
-    </div>
-
-    <div id="api-key-panel">
-      <details>
-        <summary>⚙️ API Settings</summary>
-        <div class="settings-content">
-          <label for="api-key-input">Google Maps API Key</label>
-          <input
-            type="password"
-            id="api-key-input"
-            placeholder="AIza…"
-            autocomplete="off"
-          />
-          <button id="save-api-key" class="secondary-btn">Save Key</button>
-          <p class="hint">
-            Get a key at
-            <a href="https://developers.google.com/maps/documentation/javascript/get-api-key"
-               target="_blank" rel="noopener">Google Cloud Console</a>.
-            Enable the <em>Maps JavaScript API</em> and
-            <em>Street View Static API</em>.
-          </p>
-        </div>
-      </details>
     </div>
 
     <div id="enter-vr-panel" class="hidden">

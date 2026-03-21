@@ -1,11 +1,19 @@
 /**
  * street-view-service.js
  *
- * Handles all communication with the Google Maps / Street View APIs.
- * Supports two modes:
- *  1. Direct mode  – uses the Google Maps JavaScript API (requires API key loaded in page).
- *  2. Proxy  mode  – routes every request through /api/proxy on the Node.js server,
- *                    which avoids CORS issues for tile fetching.
+ * Handles all communication with Google's public Street View tile and metadata
+ * services. No Google Maps API key is required.
+ *
+ * Usage:
+ *  1. Parse a Google Maps URL:
+ *       const parsed = StreetViewService.parseGoogleMapsUrl(url);
+ *       // → { panoId: '…' }  or  { lat: …, lng: …, heading: … }
+ *
+ *  2. Fetch panorama metadata via the server proxy:
+ *       const panoData = await svc.fetchPanoData(parsed);
+ *
+ *  3. Stitch tiles onto a canvas:
+ *       await svc.stitchPanorama(panoData.panoId, canvas, onProgress);
  *
  * Panorama tile coordinate system (equirectangular cube-face tiles):
  *   zoom 0 → 1 column × 1 row
@@ -20,93 +28,122 @@
 class StreetViewService {
   /**
    * @param {Object} opts
-   * @param {string}  opts.apiKey   – Google Maps API key (optional when using proxy).
-   * @param {string}  opts.proxyUrl – Base URL of the tile proxy (default: '/api').
-   * @param {number}  opts.tileZoom – Tile zoom level, 2–4 (default: 3).
+   * @param {string}  opts.proxyUrl – Base URL of the tile/pano proxy (default: '/api').
+   * @param {number}  opts.tileZoom – Tile zoom level, 1–4 (default: 3).
    */
-  constructor({ apiKey = '', proxyUrl = '/api', tileZoom = 3 } = {}) {
-    this.apiKey   = apiKey;
+  constructor({ proxyUrl = '/api', tileZoom = 3 } = {}) {
     this.proxyUrl = proxyUrl;
     this.tileZoom = Math.max(1, Math.min(4, tileZoom));
-    this._mapsReady = false;
-    this._loadPromise = null;
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────
 
   /**
-   * Load the Google Maps JavaScript API (idempotent – safe to call multiple times).
-   * @returns {Promise<void>}
+   * Parse a Google Maps URL and extract panorama location info.
+   *
+   * Supports:
+   *  - New desktop URL: https://www.google.com/maps/@lat,lng,…/data=…!1sPANO_ID…
+   *  - Old URL:         https://maps.google.com/maps?panoid=PANO_ID
+   *  - cbll parameter:  …&cbll=lat,lng
+   *  - lat/lng q param: …?q=lat,lng
+   *
+   * @param {string} url – Any Google Maps Street View URL.
+   * @returns {{ panoId: string }|{ lat: number, lng: number, heading?: number }|null}
    */
-  loadMapsAPI() {
-    if (this._mapsReady) return Promise.resolve();
-    if (this._loadPromise) return this._loadPromise;
+  static parseGoogleMapsUrl(url) {
+    try {
+      const u = new URL(url.trim());
 
-    this._loadPromise = new Promise((resolve, reject) => {
-      // Guard for non-browser environments (e.g. Node.js unit tests).
-      if (typeof window !== 'undefined' && window.google && window.google.maps) {
-        this._mapsReady = true;
-        resolve();
-        return;
+      // 1. Try panoId from the 'data' path segment (new desktop URLs):
+      //    …/@lat,lng,…/data=!3m…!1sPANO_ID!…
+      const pathDataMatch = u.pathname.match(/\/data=([^?#]*)/);
+      if (pathDataMatch) {
+        const m = pathDataMatch[1].match(/!1s([^!]+)/);
+        if (m && m[1]) return { panoId: m[1] };
       }
 
-      if (!this.apiKey) {
-        reject(new Error('Google Maps API key is required to initialise the Maps SDK.'));
-        return;
+      // 2. Try panoId from the 'data' query parameter (some share links).
+      const data = u.searchParams.get('data');
+      if (data) {
+        const m = data.match(/!1s([^!]+)/);
+        if (m && m[1]) return { panoId: m[1] };
       }
 
-      const callbackName = `_svInitCallback_${Date.now()}`;
-      window[callbackName] = () => {
-        this._mapsReady = true;
-        resolve();
-        delete window[callbackName];
-      };
+      // 3. Try 'panoid' query parameter (old-style URLs).
+      const panoid = u.searchParams.get('panoid');
+      if (panoid) return { panoId: panoid };
 
-      const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(this.apiKey)}&libraries=places&callback=${callbackName}`;
-      script.async = true;
-      script.defer = true;
-      script.onerror = () => reject(new Error('Failed to load Google Maps JavaScript API.'));
-      document.head.appendChild(script);
-    });
+      // 4. Try to extract lat/lng (and optional heading) from the '@' in the pathname.
+      //    e.g. /maps/@48.8584,2.2945,3a,75y,90h,90t
+      const atMatch = u.pathname.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+      if (atMatch) {
+        const lat = parseFloat(atMatch[1]);
+        const lng = parseFloat(atMatch[2]);
+        // Heading is encoded as …,Xh, in the path segment list (or at end of path).
+        const headingMatch = u.pathname.match(/,([\d.]+)h(?:[,/]|$)/);
+        const heading = headingMatch ? parseFloat(headingMatch[1]) : 0;
+        return { lat, lng, heading };
+      }
 
-    return this._loadPromise;
+      // 5. Try 'cbll' parameter (old Street View embed style).
+      const cbll = u.searchParams.get('cbll');
+      if (cbll) {
+        const parts = cbll.split(',');
+        if (parts.length === 2) {
+          const lat = parseFloat(parts[0]);
+          const lng = parseFloat(parts[1]);
+          if (!Number.isNaN(lat) && !Number.isNaN(lng)) return { lat, lng };
+        }
+      }
+
+      // 6. Try 'q' parameter when it is a bare lat,lng pair.
+      const q = u.searchParams.get('q');
+      if (q && /^-?\d+\.?\d*,-?\d+\.?\d*$/.test(q.trim())) {
+        const parts = q.split(',');
+        const lat = parseFloat(parts[0]);
+        const lng = parseFloat(parts[1]);
+        if (!Number.isNaN(lat) && !Number.isNaN(lng)) return { lat, lng };
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   /**
-   * Find a Street View panorama near the given address or coordinates.
-   * @param {string} query  – Human-readable address / place name.
+   * Fetch panorama metadata from the server-side CBK proxy.
+   *
+   * @param {{ panoId?: string, lat?: number, lng?: number }} location
    * @returns {Promise<PanoramaData>}
    */
-  async findPanoramaByQuery(query) {
-    await this.loadMapsAPI();
+  async fetchPanoData({ panoId, lat, lng } = {}) {
+    let query;
+    if (panoId) {
+      query = `panoid=${encodeURIComponent(panoId)}`;
+    } else if (lat !== undefined && lng !== undefined) {
+      query = `ll=${encodeURIComponent(`${lat},${lng}`)}`;
+    } else {
+      throw new Error('Provide panoId or lat/lng to fetch panorama data.');
+    }
 
-    // Geocode the query to (lat, lng) first.
-    const latLng = await this._geocode(query);
-    return this.findPanoramaByLocation(latLng);
-  }
+    const response = await fetch(`${this.proxyUrl}/pano?${query}`);
+    if (!response.ok) {
+      let msg = 'Failed to load panorama data.';
+      try {
+        const json = await response.json();
+        if (json.error) msg = json.error;
+      } catch { /* ignore */ }
+      throw new Error(msg);
+    }
 
-  /**
-   * Find a Street View panorama near a geographic coordinate.
-   * @param {{ lat: number, lng: number }} latLng
-   * @returns {Promise<PanoramaData>}
-   */
-  findPanoramaByLocation(latLng) {
-    return this._svRequest({ location: latLng, radius: 100, preference: 'nearest' });
-  }
-
-  /**
-   * Fetch a panorama by its panoId string.
-   * @param {string} panoId
-   * @returns {Promise<PanoramaData>}
-   */
-  findPanoramaById(panoId) {
-    return this._svRequest({ pano: panoId });
+    const json = await response.json();
+    return this._normaliseCbkData(json);
   }
 
   /**
    * Stitch the full equirectangular panorama from individual tiles onto a canvas.
-   * @param {string}          panoId  – Panorama ID returned by the Maps API.
+   * @param {string}          panoId  – Panorama ID.
    * @param {HTMLCanvasElement} canvas – Destination canvas (width/height will be set).
    * @param {Function}        onProgress – Called with (loaded, total) as tiles arrive.
    * @returns {Promise<HTMLCanvasElement>}
@@ -155,68 +192,34 @@ class StreetViewService {
 
   // ─── Private helpers ─────────────────────────────────────────────────────
 
-  /** Geocode a text query → {lat, lng} */
-  async _geocode(query) {
-    return new Promise((resolve, reject) => {
-      const geocoder = new google.maps.Geocoder();
-      geocoder.geocode({ address: query }, (results, status) => {
-        if (status === google.maps.GeocoderStatus.OK && results.length > 0) {
-          const loc = results[0].geometry.location;
-          resolve({ lat: loc.lat(), lng: loc.lng() });
-        } else {
-          reject(new Error(`Geocoding failed for "${query}": ${status}`));
-        }
-      });
-    });
-  }
-
-  /** Call the StreetViewService with the given request object. */
-  _svRequest(request) {
-    return new Promise((resolve, reject) => {
-      const svc = new google.maps.StreetViewService();
-      svc.getPanorama(request, (data, status) => {
-        if (status === google.maps.StreetViewStatus.OK) {
-          resolve(this._normalisePanoData(data));
-        } else {
-          reject(new Error(`Street View unavailable (${status})`));
-        }
-      });
-    });
-  }
-
   /**
-   * Normalise the raw Maps API panorama object into a consistent shape.
-   * @param {google.maps.StreetViewPanoramaData} raw
+   * Normalise a CBK JSON metadata response into the shared PanoramaData shape.
+   * @param {Object} json – Raw JSON from cbk0.google.com/cbk?output=json
    * @returns {PanoramaData}
    */
-  _normalisePanoData(raw) {
-    const loc = raw.location;
+  _normaliseCbkData(json) {
+    const loc = json.Location || {};
     return {
-      panoId:      loc.pano,
+      panoId:      loc.panoId || '',
       description: loc.description || '',
       latLng: {
-        lat: loc.latLng.lat(),
-        lng: loc.latLng.lng(),
+        lat: parseFloat(loc.lat) || 0,
+        lng: parseFloat(loc.lng) || 0,
       },
-      links: (raw.links || []).map(l => ({
-        panoId:      l.pano,
-        heading:     l.heading,
+      links: (json.Links || []).map(l => ({
+        panoId:      l.panoId || '',
+        heading:     parseFloat(l.heading) || 0,
         description: l.description || '',
       })),
-      copyright: raw.copyright || '',
-      tiles: raw.tiles || null,
+      copyright: '',
+      tiles: json.Data || null,
     };
   }
 
   /**
-   * Build the Street View tile URL.
-   * Uses the proxy server by default to avoid CORS restrictions.
-   *
-   * Tile URL template (Google's internal CBK service):
-   *   https://cbk0.google.com/cbk?output=tile&panoid={panoId}&zoom={zoom}&x={x}&y={y}
+   * Build the Street View tile URL routed through the server proxy (avoids CORS).
    */
   _tileUrl(panoId, zoom, x, y) {
-    // Route through proxy so the server attaches the API key and avoids browser CORS.
     return `${this.proxyUrl}/tile?panoid=${encodeURIComponent(panoId)}&zoom=${zoom}&x=${x}&y=${y}`;
   }
 

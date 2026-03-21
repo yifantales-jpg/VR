@@ -6,22 +6,21 @@
  * Responsibilities:
  *  1. Serve the static web app from ./public.
  *  2. Proxy Street View panorama tile requests to Google's CBK tile service.
- *     This avoids CORS errors in the browser and keeps the API key server-side.
- *  3. Proxy Google Maps Geocoding / StreetView metadata API calls.
+ *     This avoids CORS errors in the browser. No API key is required.
+ *  3. Proxy CBK panorama metadata (JSON) requests. No API key required.
  *
  * Environment variables:
- *   PORT            – TCP port (default: 3000).
- *   GOOGLE_MAPS_KEY – Google Maps Platform API key (required for proxy routes).
+ *   PORT – TCP port (default: 3000).
  *
  * Endpoints:
  *   GET  /api/tile?panoid=…&zoom=…&x=…&y=…
  *        Proxy a single Street View panorama tile.
  *
- *   GET  /api/metadata?pano=…   |   ?location=…&radius=…
- *        Proxy the Street View Static API metadata endpoint.
+ *   GET  /api/pano?panoid=…
+ *        Proxy CBK panorama metadata by pano ID (returns JSON).
  *
- *   GET  /api/geocode?address=…
- *        Proxy the Geocoding API (returns JSON).
+ *   GET  /api/pano?ll=lat,lng
+ *        Proxy CBK panorama metadata nearest to lat/lng (returns JSON).
  *
  *   GET  /health
  *        Health-check (returns 200 OK).
@@ -37,9 +36,6 @@ const rateLimit = require('express-rate-limit');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
-
-/** Read API key fresh on every request so tests can inject via process.env. */
-const getApiKey = () => process.env.GOOGLE_MAPS_KEY || '';
 
 /* ─── Rate limiting ──────────────────────────────────────────────────────── */
 
@@ -70,10 +66,10 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc:  ["'self'"],
-        scriptSrc:   ["'self'", "'unsafe-inline'", 'https://aframe.io', 'https://maps.googleapis.com'],
+        scriptSrc:   ["'self'", "'unsafe-inline'", 'https://aframe.io'],
         styleSrc:    ["'self'", "'unsafe-inline'"],
         imgSrc:      ["'self'", 'data:', 'blob:', 'https:', 'http:'],
-        connectSrc:  ["'self'", 'https://maps.googleapis.com'],
+        connectSrc:  ["'self'"],
         workerSrc:   ["'self'", 'blob:'],
         frameSrc:    ["'none'"],
         objectSrc:   ["'none'"],
@@ -90,10 +86,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 /* ─── Health check ───────────────────────────────────────────────────────── */
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', hasApiKey: Boolean(getApiKey()) });
+  res.json({ status: 'ok' });
 });
 
 /* ─── Helper: validate query params are safe integers / strings ─────────── */
+
+/** Default search radius (metres) when finding a panorama nearest to lat/lng. */
+const DEFAULT_PANO_SEARCH_RADIUS = 50;
 
 function safeInt(value, min = 0, max = Number.MAX_SAFE_INTEGER) {
   const n = parseInt(value, 10);
@@ -163,82 +162,56 @@ app.get('/api/tile', apiLimiter, async (req, res) => {
   }
 });
 
-/* ─── Street View metadata proxy ─────────────────────────────────────────── */
+/* ─── Panorama metadata proxy (CBK – no API key required) ────────────────── */
 
 /**
- * GET /api/metadata?pano=…
+ * GET /api/pano?panoid=…
  *   or
- * GET /api/metadata?location=lat,lng&radius=50
+ * GET /api/pano?ll=lat,lng
  *
- * Proxies the Street View Static API metadata endpoint.
- * Requires GOOGLE_MAPS_KEY environment variable.
+ * Proxies Google's CBK JSON metadata endpoint for a Street View panorama.
+ * No Google Maps API key is required; CBK is a public tile/metadata service.
  */
-app.get('/api/metadata', apiLimiter, async (req, res) => {
-  if (!getApiKey()) {
-    return res.status(503).json({ error: 'Server-side API key not configured.' });
-  }
+app.get('/api/pano', apiLimiter, async (req, res) => {
+  const params = new URLSearchParams({ output: 'json' });
 
-  const params = new URLSearchParams({ key: getApiKey() });
-
-  if (req.query.pano) {
-    const panoId = safePanoId(req.query.pano);
+  if (req.query.panoid) {
+    const panoId = safePanoId(req.query.panoid);
     if (!panoId) return res.status(400).json({ error: 'Invalid pano ID.' });
-    params.set('pano', panoId);
+    params.set('panoid', panoId);
 
-  } else if (req.query.location) {
-    // Expect "lat,lng" format – basic validation.
-    if (!/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(req.query.location)) {
-      return res.status(400).json({ error: 'Invalid location format.' });
+  } else if (req.query.ll) {
+    if (!/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/.test(req.query.ll)) {
+      return res.status(400).json({ error: 'Invalid location format (expected lat,lng).' });
     }
-    params.set('location', req.query.location);
-    if (req.query.radius) {
-      const radius = safeInt(req.query.radius, 1, 5000);
-      if (radius !== null) params.set('radius', radius);
-    }
+    params.set('ll', req.query.ll);
+    params.set('radius', String(DEFAULT_PANO_SEARCH_RADIUS));
+
   } else {
-    return res.status(400).json({ error: 'Provide pano or location parameter.' });
+    return res.status(400).json({ error: 'Provide panoid or ll parameter.' });
   }
 
-  const metaUrl = `https://maps.googleapis.com/maps/api/streetview/metadata?${params}`;
+  const cbkUrl = `https://cbk0.google.com/cbk?${params}`;
 
   try {
-    const upstream = await fetch(metaUrl, { timeout: 10000 });
+    const upstream = await fetch(cbkUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; VRStreetView/1.0)',
+        'Referer':    'https://maps.google.com/',
+      },
+      timeout: 10000,
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: 'Could not find a panorama at this location.' });
+    }
+
     const json = await upstream.json();
     res.json(json);
+
   } catch (err) {
-    console.error('[metadata proxy]', err.message);
-    res.status(502).json({ error: 'Failed to fetch metadata.' });
-  }
-});
-
-/* ─── Geocoding proxy ────────────────────────────────────────────────────── */
-
-/**
- * GET /api/geocode?address=…
- *
- * Proxies the Google Maps Geocoding API.
- * Requires GOOGLE_MAPS_KEY environment variable.
- */
-app.get('/api/geocode', apiLimiter, async (req, res) => {
-  if (!getApiKey()) {
-    return res.status(503).json({ error: 'Server-side API key not configured.' });
-  }
-
-  const address = req.query.address;
-  if (!address || typeof address !== 'string' || address.length > 256) {
-    return res.status(400).json({ error: 'Invalid address parameter.' });
-  }
-
-  const params = new URLSearchParams({ address, key: getApiKey() });
-  const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?${params}`;
-
-  try {
-    const upstream = await fetch(geoUrl, { timeout: 10000 });
-    const json = await upstream.json();
-    res.json(json);
-  } catch (err) {
-    console.error('[geocode proxy]', err.message);
-    res.status(502).json({ error: 'Failed to geocode address.' });
+    console.error('[pano proxy]', err.message);
+    res.status(502).json({ error: 'Failed to fetch panorama data.' });
   }
 });
 
@@ -251,15 +224,6 @@ app.get('*', (_req, res) => {
 /* ─── Start server ───────────────────────────────────────────────────────── */
 
 if (require.main === module) {
-  if (!getApiKey()) {
-    console.warn(
-      '[VRStreetView] WARNING: GOOGLE_MAPS_KEY not set.\n' +
-      '  The /api/metadata and /api/geocode proxy routes will return 503.\n' +
-      '  Set the env variable before starting the server:\n' +
-      '  GOOGLE_MAPS_KEY=AIza… node server.js'
-    );
-  }
-
   app.listen(PORT, () => {
     console.log(`[VRStreetView] Server running on http://localhost:${PORT}`);
     console.log(`[VRStreetView] Open in Quest 3 browser or at http://localhost:${PORT}`);

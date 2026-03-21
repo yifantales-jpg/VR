@@ -24,14 +24,15 @@
           placeholder="Paste Google Maps Street View URL here…"
           autocomplete="off"
         />
+        <button id="load-btn" class="primary-btn">Load</button>
       </div>
 
       <div id="status-bar" class="hidden"></div>
     </div>
   </div>
 
-  <!-- ─── Enter VR button (always visible, above the scene) ──────────────── -->
-  <div id="enter-vr-panel">
+  <!-- ─── Enter VR button (shown only after a panorama is loaded) ─────────── -->
+  <div id="enter-vr-panel" style="display:none">
     <button id="enter-vr-btn" class="vr-btn">🥽 Enter VR</button>
   </div>
 
@@ -87,7 +88,7 @@
     <a-entity id="nav-links"></a-entity>
 
     <!-- Camera rig with Quest 3 head tracking + optional controller navigation -->
-    <a-entity id="camera-rig" position="0 0 0">
+    <a-entity id="camera-rig" position="0 0 0" vr-controller-input>
       <a-camera
         id="main-camera"
         look-controls="reverseMouseDrag: true; touchEnabled: true; magicWindowTrackingEnabled: true"

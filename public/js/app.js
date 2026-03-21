@@ -57,6 +57,8 @@ const $urlInput       = document.getElementById('url-input');
 const $statusBar      = document.getElementById('status-bar');
 const $uiOverlay      = document.getElementById('ui-overlay');
 const $vrScene        = document.getElementById('vr-scene');
+const $loadBtn        = document.getElementById('load-btn');
+const $enterVRPanel   = document.getElementById('enter-vr-panel');
 const $enterVRBtn     = document.getElementById('enter-vr-btn');
 const $panoramaCanvas = document.getElementById('panorama-canvas');
 
@@ -74,8 +76,8 @@ function clearStatus() {
 }
 
 function setLoading(loading) {
-  $enterVRBtn.disabled    = loading;
-  $enterVRBtn.textContent = loading ? 'Loading…' : '🥽 Enter VR';
+  $loadBtn.disabled = loading;
+  $loadBtn.textContent = loading ? 'Loading…' : 'Load';
   if (loading) setStatus('Fetching panorama…', 'info');
 }
 
@@ -181,6 +183,7 @@ async function loadPanorama(panoData, showScene = true) {
 
   if (showScene) {
     transitionToVRScene();
+    $enterVRPanel.style.display = '';  // reveal Enter VR button
   } else {
     // Already in scene – just refresh.
     applyPanoramaToScene(panoData);
@@ -278,40 +281,38 @@ function showVRLoadingIndicator(show, message = 'Loading panorama…') {
 
 /* ─── Event wiring ───────────────────────────────────────────────────────── */
 
-/** Single "Enter VR" button: loads panorama if needed, then enters VR. */
-$enterVRBtn.addEventListener('click', () => {
-  showDebug('Enter VR button clicked', 'info');
-
-  const scene = document.getElementById('vr-scene');
-
-  // If a panorama is already showing, toggle VR mode directly.
-  if (currentPanoData) {
-    if (!navigator.xr) {
-      const msg = 'WebXR is not available. Access this page over HTTPS or from localhost to use VR.';
-      setStatus(msg, 'error');
-      showDebug('WebXR not available (navigator.xr is undefined)');
-      return;
-    }
-    try {
-      if (scene && scene.is('vr-mode')) {
-        scene.exitVR();
-      } else if (scene) {
-        scene.enterVR();
-      }
-    } catch (err) {
-      console.error('[VRStreetView] Enter VR error:', err);
-      showDebug('Enter VR error: ' + err.message);
-    }
-    return;
-  }
-
-  // No panorama loaded yet — load from the URL in the input field.
+/** "Load" button: parse URL and fetch the panorama. */
+$loadBtn.addEventListener('click', () => {
   const url = $urlInput.value.trim();
   if (!url) {
     setStatus('Paste a Google Maps Street View URL first.', 'error');
     return;
   }
   loadFromUrl(url);
+});
+
+/** "Enter VR" button: enter or exit immersive VR. */
+$enterVRBtn.addEventListener('click', () => {
+  showDebug('Enter VR button clicked', 'info');
+
+  if (!navigator.xr) {
+    const msg = 'WebXR is not available. Access this page over HTTPS or from localhost to use VR.';
+    setStatus(msg, 'error');
+    showDebug('WebXR not available (navigator.xr is undefined)');
+    return;
+  }
+
+  const scene = document.getElementById('vr-scene');
+  try {
+    if (scene && scene.is('vr-mode')) {
+      scene.exitVR();
+    } else if (scene) {
+      scene.enterVR();
+    }
+  } catch (err) {
+    console.error('[VRStreetView] Enter VR error:', err);
+    showDebug('Enter VR error: ' + err.message);
+  }
 });
 
 $urlInput.addEventListener('keydown', (e) => {
@@ -347,7 +348,7 @@ document.getElementById('vr-scene').addEventListener('load-pano-by-id', (evt) =>
   }
   [
     'url-input', 'status-bar', 'ui-overlay',
-    'vr-scene', 'enter-vr-btn', 'panorama-canvas',
+    'vr-scene', 'load-btn', 'enter-vr-btn', 'enter-vr-panel', 'panorama-canvas',
   ].forEach(id => {
     if (!document.getElementById(id)) {
       showDebug('Required DOM element #' + id + ' was not found', 'warn');

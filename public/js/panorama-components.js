@@ -222,3 +222,96 @@ AFRAME.registerComponent('loading-overlay', {
     if (this._el) this._el.setAttribute('visible', false);
   },
 });
+
+/* ─── vr-controller-input ───────────────────────────────────────────────── */
+
+/**
+ * Handles Quest controller input while in VR:
+ *   - Thumbstick left / right → rotate camera rig in discrete steps (stepped turn).
+ *   - Thumbstick up / down    → zoom the camera by adjusting its field-of-view.
+ *   - X button (left hand)    → exit VR.
+ *
+ * Attach to the #camera-rig entity: <a-entity vr-controller-input …>
+ */
+AFRAME.registerComponent('vr-controller-input', {
+  schema: {
+    turnStep:    { type: 'number', default: 45  },  // degrees per lateral step
+    turnCooldown:{ type: 'number', default: 350 },  // ms between turns
+    zoomStep:    { type: 'number', default: 5   },  // FOV degrees per zoom step
+    zoomCooldown:{ type: 'number', default: 200 },  // ms between zoom steps
+    fovMin:      { type: 'number', default: 30  },  // narrowest (most zoomed-in) FOV
+    fovMax:      { type: 'number', default: 120 },  // widest (most zoomed-out) FOV
+    deadzone:    { type: 'number', default: 0.5 },  // thumbstick axis threshold
+  },
+
+  init() {
+    this._lastTurn = 0;
+    this._lastZoom = 0;
+
+    this._onThumbstick = this._onThumbstick.bind(this);
+    this._onXButton    = this._onXButton.bind(this);
+
+    this._leftHand  = document.getElementById('left-hand');
+    this._rightHand = document.getElementById('right-hand');
+
+    if (this._leftHand) {
+      this._leftHand.addEventListener('thumbstickmoved', this._onThumbstick);
+      this._leftHand.addEventListener('xbuttondown', this._onXButton);
+    }
+    if (this._rightHand) {
+      this._rightHand.addEventListener('thumbstickmoved', this._onThumbstick);
+    }
+  },
+
+  remove() {
+    if (this._leftHand) {
+      this._leftHand.removeEventListener('thumbstickmoved', this._onThumbstick);
+      this._leftHand.removeEventListener('xbuttondown',    this._onXButton);
+    }
+    if (this._rightHand) {
+      this._rightHand.removeEventListener('thumbstickmoved', this._onThumbstick);
+    }
+  },
+
+  _onThumbstick(evt) {
+    const now      = Date.now();
+    const { x, y } = evt.detail;
+    const dz       = this.data.deadzone;
+
+    // ── Left / Right → stepped yaw rotation ─────────────────────────────
+    if (Math.abs(x) >= dz && now - this._lastTurn >= this.data.turnCooldown) {
+      const rotation = this.el.getAttribute('rotation');
+      // Positive x = thumbstick right → turn right (decrease y-rotation)
+      const step = x > 0 ? -this.data.turnStep : this.data.turnStep;
+      this.el.setAttribute('rotation', {
+        x: rotation.x,
+        y: rotation.y + step,
+        z: rotation.z,
+      });
+      this._lastTurn = now;
+    }
+
+    // ── Up / Down → zoom (FOV) ──────────────────────────────────────────
+    if (Math.abs(y) >= dz && now - this._lastZoom >= this.data.zoomCooldown) {
+      const camera = this.el.querySelector('[camera]');
+      if (camera) {
+        const currentFov = parseFloat(camera.getAttribute('fov')) || 90;
+        // Positive y = thumbstick down → zoom out (increase FOV)
+        const newFov = THREE.MathUtils.clamp(
+          currentFov + (y > 0 ? this.data.zoomStep : -this.data.zoomStep),
+          this.data.fovMin,
+          this.data.fovMax
+        );
+        camera.setAttribute('fov', newFov);
+      }
+      this._lastZoom = now;
+    }
+  },
+
+  _onXButton() {
+    const scene = this.el.sceneEl;
+    if (scene && scene.is('vr-mode')) {
+      scene.exitVR();
+    }
+  },
+});

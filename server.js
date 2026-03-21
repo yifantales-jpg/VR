@@ -28,6 +28,11 @@
  *   GET  /api/pano?ll=lat,lng
  *        Proxy CBK panorama metadata nearest to lat/lng (returns JSON).
  *
+ *   GET  /api/photo?url=…
+ *        Proxy a user-contributed Photo Sphere equirectangular image from
+ *        Google's image hosting (lh3.googleusercontent.com). Only Google
+ *        image hosting URLs are accepted to prevent open-proxy abuse.
+ *
  *   GET  /health
  *        Health-check (returns 200 OK).
  */
@@ -79,7 +84,7 @@ app.use(
         scriptSrc:   ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         styleSrc:    ["'self'", "'unsafe-inline'"],
         imgSrc:      ["'self'", 'data:', 'blob:', 'https:', 'http:'],
-        connectSrc:  ["'self'"],
+        connectSrc:  ["'self'", 'https://cdn.aframe.io'],
         workerSrc:   ["'self'", 'blob:'],
         frameSrc:    ["'none'"],
         objectSrc:   ["'none'"],
@@ -233,6 +238,58 @@ app.get('/api/pano', apiLimiter, async (req, res) => {
   } catch (err) {
     console.error('[pano proxy]', err.message);
     res.status(502).json({ error: 'Failed to fetch panorama data.' });
+  }
+});
+
+/* ─── Photo Sphere image proxy ───────────────────────────────────────────── */
+
+/**
+ * GET /api/photo?url=…
+ *
+ * Proxies a user-contributed Photo Sphere equirectangular image from Google's
+ * image hosting service (lh3.googleusercontent.com) back to the browser.
+ * This avoids CORS restrictions that would otherwise prevent the canvas from
+ * painting the cross-origin image.
+ *
+ * Only lh3.googleusercontent.com URLs are accepted to prevent open-proxy abuse.
+ */
+app.get('/api/photo', apiLimiter, async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required.' });
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return res.status(400).json({ error: 'Invalid URL.' });
+  }
+
+  // Restrict to Google's image-hosting domain to prevent open-proxy abuse.
+  if (parsedUrl.hostname !== 'lh3.googleusercontent.com') {
+    return res.status(400).json({ error: 'Only Google image hosting URLs are supported.' });
+  }
+
+  try {
+    const upstream = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; VRStreetView/1.0)',
+        'Referer':    'https://maps.google.com/',
+      },
+      timeout: 30000,
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: 'Could not fetch photo.' });
+    }
+
+    const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    upstream.body.pipe(res);
+
+  } catch (err) {
+    console.error('[photo proxy]', err.message);
+    res.status(502).json({ error: 'Failed to fetch photo.' });
   }
 });
 

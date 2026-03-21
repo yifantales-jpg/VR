@@ -42,13 +42,14 @@ class StreetViewService {
    * Parse a Google Maps URL and extract panorama location info.
    *
    * Supports:
-   *  - New desktop URL: https://www.google.com/maps/@lat,lng,…/data=…!1sPANO_ID…
-   *  - Old URL:         https://maps.google.com/maps?panoid=PANO_ID
-   *  - cbll parameter:  …&cbll=lat,lng
-   *  - lat/lng q param: …?q=lat,lng
+   *  - New desktop URL:   https://www.google.com/maps/@lat,lng,…/data=…!1sPANO_ID…
+   *  - User Photo Sphere: same URL shape but with !6s<google-photo-url> and !2e10/!3e11 flags
+   *  - Old URL:           https://maps.google.com/maps?panoid=PANO_ID
+   *  - cbll parameter:    …&cbll=lat,lng
+   *  - lat/lng q param:   …?q=lat,lng
    *
    * @param {string} url – Any Google Maps Street View URL.
-   * @returns {{ panoId: string }|{ lat: number, lng: number, heading?: number }|null}
+   * @returns {{ panoId: string, photoUrl?: string }|{ lat: number, lng: number, heading?: number }|null}
    */
   static parseGoogleMapsUrl(url) {
     try {
@@ -59,14 +60,24 @@ class StreetViewService {
       const pathDataMatch = u.pathname.match(/\/data=([^?#]*)/);
       if (pathDataMatch) {
         const m = pathDataMatch[1].match(/!1s([^!]+)/);
-        if (m && m[1]) return { panoId: m[1] };
+        if (m && m[1]) {
+          const panoId = m[1];
+          // User-contributed Photo Spheres embed a direct Google image URL in !6s.
+          // When present, pass it through so the caller can skip the CBK tile proxy.
+          const photoUrl = StreetViewService._extractGooglePhotoUrl(pathDataMatch[1]);
+          return photoUrl ? { panoId, photoUrl } : { panoId };
+        }
       }
 
       // 2. Try panoId from the 'data' query parameter (some share links).
       const data = u.searchParams.get('data');
       if (data) {
         const m = data.match(/!1s([^!]+)/);
-        if (m && m[1]) return { panoId: m[1] };
+        if (m && m[1]) {
+          const panoId = m[1];
+          const photoUrl = StreetViewService._extractGooglePhotoUrl(data);
+          return photoUrl ? { panoId, photoUrl } : { panoId };
+        }
       }
 
       // 3. Try 'panoid' query parameter (old-style URLs).
@@ -114,10 +125,28 @@ class StreetViewService {
   /**
    * Fetch panorama metadata from the server-side CBK proxy.
    *
-   * @param {{ panoId?: string, lat?: number, lng?: number }} location
+   * When the parsed location contains a `photoUrl` (user-contributed Photo
+   * Sphere), the CBK proxy is skipped and a synthetic PanoramaData object is
+   * returned immediately so the caller can load the image directly.
+   *
+   * @param {{ panoId?: string, lat?: number, lng?: number, photoUrl?: string }} location
    * @returns {Promise<PanoramaData>}
    */
-  async fetchPanoData({ panoId, lat, lng } = {}) {
+  async fetchPanoData({ panoId, lat, lng, photoUrl } = {}) {
+    // User-contributed Photo Sphere: the equirectangular image URL is embedded
+    // directly in the Maps URL; skip the CBK metadata proxy entirely.
+    if (photoUrl) {
+      return {
+        panoId:      panoId || '',
+        description: '',
+        latLng:      { lat: 0, lng: 0 },
+        links:       [],
+        copyright:   '',
+        tiles:       null,
+        photoUrl,
+      };
+    }
+
     let query;
     if (panoId) {
       query = `panoid=${encodeURIComponent(panoId)}`;
@@ -193,6 +222,33 @@ class StreetViewService {
   // ─── Private helpers ─────────────────────────────────────────────────────
 
   /**
+   * Extract a cleaned Google image-hosting URL from a Maps data string.
+   *
+   * User-contributed Photo Spheres embed their equirectangular image URL inside
+   * a `!6s…` segment of the Maps data blob. The URL is percent-encoded and
+   * includes size/transform parameters after a bare `=` separator; this method
+   * decodes the URL and strips those parameters so the caller can request its
+   * own preferred size (e.g. `=w4096-h2048-k-no`).
+   *
+   * Returns null when the data string contains no usable Google photo URL.
+   *
+   * @param {string} dataStr – Raw (path-encoded) or pre-decoded Maps data blob.
+   * @returns {string|null}
+   */
+  static _extractGooglePhotoUrl(dataStr) {
+    const m = dataStr.match(/!6s(https?[^!]+)/);
+    if (!m) return null;
+    try {
+      const rawUrl = decodeURIComponent(m[1]);
+      if (!rawUrl.startsWith('https://lh3.googleusercontent.com/')) return null;
+      // Strip the size/transform suffix that follows the bare `=` separator.
+      return rawUrl.replace(/=.*$/, '');
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Normalise a CBK JSON metadata response into the shared PanoramaData shape.
    * @param {Object} json – Raw JSON from cbk0.google.com/cbk?output=json
    * @returns {PanoramaData}
@@ -243,6 +299,7 @@ class StreetViewService {
  * @property {Array<LinkData>}     links
  * @property {string}              copyright
  * @property {Object|null}         tiles
+ * @property {string}              [photoUrl]  – Direct equirectangular image URL (Photo Spheres only).
  */
 
 /**

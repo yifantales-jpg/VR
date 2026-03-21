@@ -41,7 +41,9 @@ function showDebug(message, type = 'error') {
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-const DEFAULT_TILE_ZOOM = 3;   // 8×4 tiles → 4096×2048 panorama
+const DEFAULT_TILE_ZOOM       = 3;     // 8×4 tiles → 4096×2048 panorama
+const PHOTO_SPHERE_WIDTH      = 4096;  // target width for Photo Sphere equirectangular
+const PHOTO_SPHERE_HEIGHT     = 2048;  // target height (2:1 aspect ratio)
 
 /* ─── State ─────────────────────────────────────────────────────────────── */
 
@@ -143,10 +145,11 @@ async function navigateToPano(panoId) {
 
 /**
  * Core panorama-loading routine:
- *  1. Stitch tiles onto the shared canvas.
- *  2. Apply canvas as VR sky texture.
- *  3. Build navigation arrows.
- *  4. Show the VR scene (first load only).
+ *  1. For standard Street View panos: stitch CBK tiles onto the shared canvas.
+ *  2. For user-contributed Photo Spheres: fetch the equirectangular image directly.
+ *  3. Apply canvas as VR sky texture.
+ *  4. Build navigation arrows.
+ *  5. Show the VR scene (first load only).
  *
  * @param {PanoramaData} panoData
  * @param {boolean}      showScene – transition from 2-D UI to 3-D scene.
@@ -155,17 +158,26 @@ async function loadPanorama(panoData, showScene = true) {
   currentPanoData = panoData;
   const svc = getService();
 
-  setStatus(`Stitching panorama tiles…`, 'info');
+  if (panoData.photoUrl) {
+    // User-contributed Photo Sphere: load the equirectangular image directly.
+    setStatus('Loading panorama image…', 'info');
+    await loadPhotoSphereImage(panoData.photoUrl);
+    console.info(`[VRStreetView] Loaded photo sphere (${panoData.panoId})`);
+  } else {
+    setStatus(`Stitching panorama tiles…`, 'info');
 
-  let tilesLoaded = 0;
-  const totalTiles = Math.pow(2, DEFAULT_TILE_ZOOM) * Math.pow(2, DEFAULT_TILE_ZOOM - 1);
+    let tilesLoaded = 0;
+    const totalTiles = Math.pow(2, DEFAULT_TILE_ZOOM) * Math.pow(2, DEFAULT_TILE_ZOOM - 1);
 
-  await svc.stitchPanorama(panoData.panoId, $panoramaCanvas, (loaded, total) => {
-    tilesLoaded = loaded;
-    const pct = Math.round((loaded / total) * 100);
-    setStatus(`Loading tiles: ${pct}%`, 'info');
-    if (isVRMode) showVRLoadingIndicator(true, `Loading ${pct}%`);
-  });
+    await svc.stitchPanorama(panoData.panoId, $panoramaCanvas, (loaded, total) => {
+      tilesLoaded = loaded;
+      const pct = Math.round((loaded / total) * 100);
+      setStatus(`Loading tiles: ${pct}%`, 'info');
+      if (isVRMode) showVRLoadingIndicator(true, `Loading ${pct}%`);
+    });
+
+    console.info(`[VRStreetView] Loaded "${panoData.description}" (${panoData.panoId}), ${tilesLoaded} tiles`);
+  }
 
   if (showScene) {
     transitionToVRScene();
@@ -176,8 +188,33 @@ async function loadPanorama(panoData, showScene = true) {
 
   clearStatus();
   showVRLoadingIndicator(false);
+}
 
-  console.info(`[VRStreetView] Loaded "${panoData.description}" (${panoData.panoId}), ${tilesLoaded} tiles`);
+/**
+ * Load a user-contributed Photo Sphere by fetching its equirectangular image
+ * via the /api/photo proxy and drawing it onto the shared canvas.
+ *
+ * The image is requested at 4096×2048 — a good balance of quality and
+ * performance for WebXR — using the standard Google image-serving size suffix.
+ *
+ * @param {string} photoUrl – Base Google Photos URL (without size parameters).
+ * @returns {Promise<void>}
+ */
+function loadPhotoSphereImage(photoUrl) {
+  const proxyUrl = `/api/photo?url=${encodeURIComponent(photoUrl + `=w${PHOTO_SPHERE_WIDTH}-h${PHOTO_SPHERE_HEIGHT}-k-no`)}`;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      $panoramaCanvas.width  = img.naturalWidth  || PHOTO_SPHERE_WIDTH;
+      $panoramaCanvas.height = img.naturalHeight || PHOTO_SPHERE_HEIGHT;
+      const ctx = $panoramaCanvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      resolve();
+    };
+    img.onerror = () => reject(new Error('Failed to load panorama image.'));
+    img.src = proxyUrl;
+  });
 }
 
 /* ─── Scene management ───────────────────────────────────────────────────── */

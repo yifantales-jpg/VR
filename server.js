@@ -57,7 +57,7 @@ const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
 /** General limiter applied to all routes (prevents scraping / DoS). */
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 300,                  // 300 requests per window per IP
+  max: 1500,                 // ~10 full panorama loads (128 tiles each) per 15 min per IP
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
@@ -66,7 +66,7 @@ const generalLimiter = rateLimit({
 /** Stricter limiter for API proxy routes that forward to Google. */
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,   // 1 minute
-  max: 120,              // 120 tile/geocode requests per minute per IP
+  max: 300,              // covers one full zoom=4 load (128 tiles) + navigation overhead
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'API rate limit exceeded, please slow down.' },

@@ -195,6 +195,75 @@ describe('StreetViewService._normaliseCbkData', () => {
   });
 });
 
+describe('StreetViewService._runWithConcurrency', () => {
+  it('runs all tasks and resolves when done', async () => {
+    const svc = new StreetViewService();
+    const results = [];
+    const tasks = [1, 2, 3, 4, 5].map(n => () => Promise.resolve().then(() => results.push(n)));
+    await svc._runWithConcurrency(tasks, 2);
+    expect(results.sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('never exceeds the concurrency limit', async () => {
+    const svc = new StreetViewService();
+    let inFlight = 0;
+    let maxObserved = 0;
+    const delay = ms => new Promise(res => setTimeout(res, ms));
+    const tasks = Array.from({ length: 10 }, () => async () => {
+      inFlight++;
+      maxObserved = Math.max(maxObserved, inFlight);
+      await delay(5);
+      inFlight--;
+    });
+    await svc._runWithConcurrency(tasks, 3);
+    expect(maxObserved).toBeLessThanOrEqual(3);
+  });
+
+  it('handles an empty task list', async () => {
+    const svc = new StreetViewService();
+    await expect(svc._runWithConcurrency([], 4)).resolves.toBeDefined();
+  });
+});
+
+describe('StreetViewService.stitchPanorama', () => {
+  it('sets canvas dimensions and paints all tiles', async () => {
+    const svc = new StreetViewService({ tileZoom: 2 }); // 4 cols × 2 rows = 8 tiles
+    // Stub _loadTile to return a minimal image-like object without network access.
+    svc._loadTile = (_panoId, _zoom, _x, _y) =>
+      Promise.resolve({ naturalWidth: 512, naturalHeight: 512 });
+
+    const ctx = {
+      drawImage: jest.fn(),
+      fillRect:  jest.fn(),
+    };
+    const canvas = {
+      getContext: () => ctx,
+    };
+
+    let progressCalls = 0;
+    await svc.stitchPanorama('PANO123', canvas, () => { progressCalls++; });
+
+    expect(canvas.width).toBe(4 * 512);   // 2048
+    expect(canvas.height).toBe(2 * 512);  // 1024
+    expect(ctx.drawImage).toHaveBeenCalledTimes(8);
+    expect(progressCalls).toBe(8);
+  });
+
+  it('calls onProgress once per tile even when tiles fail', async () => {
+    const svc = new StreetViewService({ tileZoom: 1 }); // 2 cols × 1 row = 2 tiles
+    svc._loadTile = () => Promise.reject(new Error('network error'));
+
+    const ctx = { drawImage: jest.fn(), fillStyle: '', fillRect: jest.fn() };
+    const canvas = { getContext: () => ctx };
+
+    let progressCalls = 0;
+    await svc.stitchPanorama('PANO', canvas, () => { progressCalls++; });
+
+    expect(progressCalls).toBe(2);
+    expect(ctx.fillRect).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('StreetViewService.fetchPanoData with photoUrl', () => {
   it('returns synthetic PanoramaData immediately without a network call when photoUrl is provided', async () => {
     const svc = new StreetViewService();

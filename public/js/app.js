@@ -310,7 +310,7 @@ document.getElementById('vr-scene').addEventListener('load-pano-by-id', (evt) =>
   }
   [
     'url-input', 'status-bar', 'ui-overlay',
-    'vr-scene', 'enter-vr-panel', 'enter-vr-btn', 'panorama-canvas',
+    'vr-scene', 'enter-vr-btn', 'panorama-canvas',
   ].forEach(id => {
     if (!document.getElementById(id)) {
       showDebug('Required DOM element #' + id + ' was not found', 'warn');

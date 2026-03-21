@@ -14,31 +14,6 @@
 
 'use strict';
 
-/* ─── On-page debug log ──────────────────────────────────────────────────── */
-
-/**
- * Append a message to the always-visible #debug-log panel.
- * Works even when the main UI overlay is hidden or JS initialisation has failed.
- * @param {string} message
- * @param {'error'|'warn'|'info'} [type]
- */
-function showDebug(message, type = 'error') {
-  if (window._vrDebug) window._vrDebug.show(message, type);
-}
-
-// Forward console.error calls to the debug panel so A-Frame / library errors
-// are visible on the page without requiring DevTools to be open.
-(function mirrorConsoleError() {
-  const orig = console.error.bind(console);
-  console.error = function (...args) {
-    orig(...args);
-    const text = args
-      .map(a => (a instanceof Error ? (a.stack || a.message) : String(a)))
-      .join(' ');
-    showDebug(text);
-  };
-}());
-
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
 const DEFAULT_TILE_ZOOM       = 4;    // 16×8 tiles → 8192×4096 panorama (CBK Street View)
@@ -137,7 +112,6 @@ async function navigateToPano(panoId) {
     await loadPanorama(panoData, /* showScene= */ false);
   } catch (err) {
     console.error('[VRStreetView] Navigation error:', err);
-    showDebug('Navigation error: ' + err.message);
   } finally {
     showVRLoadingIndicator(false);
   }
@@ -267,7 +241,6 @@ function transitionToVRScene() {
           if (scene && !scene.is('vr-mode')) scene.enterVR();
         } catch (err) {
           console.error('[VRStreetView] Auto enter VR error:', err);
-          showDebug('Auto enter VR error: ' + err.message);
         }
       }).catch((err) => {
         console.error('[VRStreetView] isSessionSupported error:', err);
@@ -328,7 +301,6 @@ $loadBtn.addEventListener('click', () => {
 
 $urlInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    showDebug('Enter key pressed in URL input', 'info');
     loadFromUrl($urlInput.value);
   }
 });
@@ -347,21 +319,13 @@ document.getElementById('vr-scene').addEventListener('load-pano-by-id', (evt) =>
 /* ─── Init ───────────────────────────────────────────────────────────────── */
 
 (function init() {
-  // ── Startup diagnostics ────────────────────────────────────────────────
+  // ── Startup checks (console only) ─────────────────────────────────────
   if (typeof StreetViewService === 'undefined') {
-    showDebug('StreetViewService is not defined — street-view-service.js may not have loaded', 'warn');
+    console.warn('[VRStreetView] StreetViewService is not defined — street-view-service.js may not have loaded');
   }
   if (typeof AFRAME === 'undefined') {
-    showDebug('A-Frame is not defined — check network connectivity or content blocker', 'warn');
+    console.warn('[VRStreetView] A-Frame is not defined — check network connectivity or content blocker');
   }
-  [
-    'url-input', 'status-bar', 'ui-overlay',
-    'vr-scene', 'load-btn', 'panorama-canvas',
-  ].forEach(id => {
-    if (!document.getElementById(id)) {
-      showDebug('Required DOM element #' + id + ' was not found', 'warn');
-    }
-  });
   // ──────────────────────────────────────────────────────────────────────
 
   // Auto-load from URL fragment if launched from Android with a Maps URL:

@@ -260,12 +260,24 @@ AFRAME.registerComponent('vr-controller-input', {
     this._lastTurn = 0;
     this._lastZoom = 0;
 
+    // Read the camera's initial FOV and keep it in component state so we
+    // always increment/decrement from a known value, and can compute the
+    // scale needed for the VR projection-matrix zoom hook.
+    const camEl = this.el.querySelector('[camera]');
+    const camData = camEl && camEl.getAttribute('camera');
+    this._fov     = (camData && camData.fov) || 90;
+    this._baseFov = this._fov;
+
+    // Flag reset each tick; used by the VR zoom hook to apply once per frame.
+    this._vrZoomApplied = false;
+
     this._onThumbstick = this._onThumbstick.bind(this);
     this._onXButton    = this._onXButton.bind(this);
     this._onWheel      = this._onWheel.bind(this);
 
     this._leftHand  = document.getElementById('left-hand');
     this._rightHand = document.getElementById('right-hand');
+    this._skyEl     = document.getElementById('panorama-sky');
 
     if (this._leftHand) {
       this._leftHand.addEventListener('thumbstickmoved', this._onThumbstick);
@@ -276,6 +288,61 @@ AFRAME.registerComponent('vr-controller-input', {
     }
 
     this.el.sceneEl.addEventListener('wheel', this._onWheel, { passive: true });
+
+    // Hook into the sky sphere's per-object render callback so we can apply
+    // zoom AFTER WebXR has written its projection matrices each frame (which
+    // happens inside THREE.WebGLRenderer.render, before any onBeforeRender
+    // callbacks fire for individual objects).
+    this._setupVRZoomHook();
+  },
+
+  /**
+   * Attach an onBeforeRender callback to the sky sphere mesh.
+   * In VR mode Three.js passes an ArrayCamera whose .cameras[] hold the
+   * per-eye projection matrices written by WebXR.  We scale m00 and m11 of
+   * each eye's projection matrix to simulate zoom without touching the FOV
+   * that WebXR controls.  In flat mode (non-ArrayCamera) we rely on the
+   * standard setAttribute('camera','fov') path instead.
+   */
+  _setupVRZoomHook() {
+    const self = this;
+
+    this._vrZoomHook = function vrZoomHook(renderer, scene, camera) {
+      // Only needed in VR mode — flat mode is handled via camera FOV.
+      if (!camera.isArrayCamera) return;
+      // Apply only once per frame (multiple meshes share the same frame).
+      if (self._vrZoomApplied) return;
+      self._vrZoomApplied = true;
+
+      const zoomScale = self._baseFov / self._fov;
+      if (Math.abs(zoomScale - 1.0) < 0.0001) return; // no change needed
+
+      camera.cameras.forEach(eyeCam => {
+        // projectionMatrix is column-major; elements[0] = m00, elements[5] = m11.
+        // Scaling both by zoomScale narrows (or widens) the effective FOV.
+        eyeCam.projectionMatrix.elements[0] *= zoomScale;
+        eyeCam.projectionMatrix.elements[5] *= zoomScale;
+        eyeCam.projectionMatrixInverse
+          .copy(eyeCam.projectionMatrix)
+          .invert();
+      });
+    };
+
+    const skyEl = this._skyEl;
+    const applyHook = () => {
+      const mesh = skyEl && skyEl.getObject3D('mesh');
+      if (mesh) mesh.onBeforeRender = this._vrZoomHook;
+    };
+    if (skyEl && skyEl.getObject3D('mesh')) {
+      applyHook();
+    } else if (skyEl) {
+      skyEl.addEventListener('loaded', applyHook, { once: true });
+    }
+  },
+
+  /** Reset the per-frame VR zoom flag before Three.js renders. */
+  tick() {
+    this._vrZoomApplied = false;
   },
 
   remove() {
@@ -288,6 +355,12 @@ AFRAME.registerComponent('vr-controller-input', {
     }
 
     this.el.sceneEl.removeEventListener('wheel', this._onWheel);
+
+    // Remove the VR zoom hook from the sky sphere mesh.
+    const mesh = this._skyEl && this._skyEl.getObject3D('mesh');
+    if (mesh && mesh.onBeforeRender === this._vrZoomHook) {
+      mesh.onBeforeRender = null;
+    }
   },
 
   _onThumbstick(evt) {
@@ -308,20 +381,23 @@ AFRAME.registerComponent('vr-controller-input', {
       this._lastTurn = now;
     }
 
-    // ── Up / Down → zoom (FOV) ──────────────────────────────────────────
+    // ── Up / Down → zoom ─────────────────────────────────────────────────
     if (Math.abs(y) >= dz && now - this._lastZoom >= this.data.zoomCooldown) {
+      // Positive y = thumbstick down → zoom out (increase FOV)
+      const newFov = THREE.MathUtils.clamp(
+        this._fov + (y > 0 ? this.data.zoomStep : -this.data.zoomStep),
+        this.data.fovMin,
+        this.data.fovMax
+      );
+      this._fov = newFov;
+
+      // Flat mode: propagate to the A-Frame camera component.
       const camera = this.el.querySelector('[camera]');
-      if (camera) {
-        const cameraData = camera.getAttribute('camera');
-        const currentFov = (cameraData && cameraData.fov) || 90;
-        // Positive y = thumbstick down → zoom out (increase FOV)
-        const newFov = THREE.MathUtils.clamp(
-          currentFov + (y > 0 ? this.data.zoomStep : -this.data.zoomStep),
-          this.data.fovMin,
-          this.data.fovMax
-        );
-        camera.setAttribute('camera', 'fov', newFov);
-      }
+      if (camera) camera.setAttribute('camera', 'fov', newFov);
+
+      // VR mode: the onBeforeRender hook reads this._fov each frame and
+      // applies the equivalent scale to the WebXR projection matrices.
+
       this._lastZoom = now;
     }
   },

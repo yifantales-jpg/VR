@@ -73,6 +73,32 @@ describe('GET /api/pano', () => {
   });
 });
 
+describe('GET /api/photo', () => {
+  it('returns 400 when url parameter is missing', async () => {
+    const res = await request(app).get('/api/photo');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/url parameter required/);
+  });
+
+  it('returns 400 for a non-Google image hosting URL', async () => {
+    const res = await request(app).get('/api/photo?url=https://example.com/image.jpg');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Only Google image hosting/);
+  });
+
+  it('returns 400 for an invalid (non-URL) value', async () => {
+    const res = await request(app).get('/api/photo?url=not-a-url');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Invalid URL/);
+  });
+
+  it('returns 400 for a URL on a subdomain of googleusercontent.com', async () => {
+    const res = await request(app).get('/api/photo?url=https://evil.lh3.googleusercontent.com/image');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Only Google image hosting/);
+  });
+});
+
 describe('Static file serving', () => {
   it('serves index.html at root', async () => {
     const res = await request(app).get('/');

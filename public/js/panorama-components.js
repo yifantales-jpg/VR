@@ -351,3 +351,42 @@ AFRAME.registerComponent('vr-controller-input', {
     }
   },
 });
+
+/* ─── Patch: oculus-touch-controls quaternion guard ─────────────────────── */
+
+/**
+ * A-Frame 1.5.0 has a bug in oculus-touch-controls where button events for
+ * the 'none' mapped slot (WebXR button index 2) reach onButtonChangedV3orPROorPlus
+ * and attempt to read buttonObjects['none'].quaternion — but buttonObjects['none']
+ * is undefined, producing:
+ *   "Uncaught TypeError: Cannot read properties of undefined (reading 'quaternion')"
+ *
+ * Similarly, updateThumbstickTouchV3orPROorPlus accesses buttonObjects.thumbstickXAxis
+ * and .thumbstickYAxis without checking they exist (e.g. before the model loads).
+ *
+ * Fix: wrap both methods with guards that bail out when the referenced
+ * buttonObjects entry is absent.
+ */
+(function patchOculusTouchControls() {
+  const registration = AFRAME.components['oculus-touch-controls'];
+  if (!registration) { return; }
+
+  const proto = registration.Component.prototype;
+
+  // ── onButtonChangedV3orPROorPlus ───────────────────────────────────────
+  const _origButtonChanged = proto.onButtonChangedV3orPROorPlus;
+  proto.onButtonChangedV3orPROorPlus = function (evt) {
+    const button = this.mapping[this.data.hand].buttons[evt.detail.id];
+    if (!this.buttonObjects || !this.buttonObjects[button]) { return; }
+    _origButtonChanged.call(this, evt);
+  };
+
+  // ── updateThumbstickTouchV3orPROorPlus ────────────────────────────────
+  const _origThumbstick = proto.updateThumbstickTouchV3orPROorPlus;
+  proto.updateThumbstickTouchV3orPROorPlus = function (evt) {
+    if (!this.buttonObjects ||
+        !this.buttonObjects.thumbstickXAxis ||
+        !this.buttonObjects.thumbstickYAxis) { return; }
+    _origThumbstick.call(this, evt);
+  };
+}());

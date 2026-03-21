@@ -301,6 +301,62 @@ app.get('/api/photo', apiLimiter, async (req, res) => {
   }
 });
 
+/* ─── Short URL resolver ─────────────────────────────────────────────────── */
+
+/**
+ * GET /api/resolve?url=…
+ *
+ * Follows HTTP redirects for a known short URL service and returns the final
+ * (fully-resolved) URL.  This lets the client resolve Google Maps short links
+ * (maps.app.goo.gl) and Twitter/X share links (t.co) before passing them to
+ * StreetViewService.parseGoogleMapsUrl.
+ *
+ * Only URLs from the ALLOWED_SHORT_URL_HOSTS allowlist are accepted to prevent
+ * open-proxy / SSRF abuse.
+ */
+const ALLOWED_SHORT_URL_HOSTS = new Set([
+  'maps.app.goo.gl',
+  'goo.gl',
+  't.co',
+]);
+
+app.get('/api/resolve', apiLimiter, async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required.' });
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return res.status(400).json({ error: 'Invalid URL.' });
+  }
+
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+    return res.status(400).json({ error: 'Only HTTP/HTTPS URLs are supported.' });
+  }
+
+  if (!ALLOWED_SHORT_URL_HOSTS.has(parsedUrl.hostname)) {
+    return res.status(400).json({
+      error: `URL host not supported. Supported hosts: ${[...ALLOWED_SHORT_URL_HOSTS].join(', ')}.`,
+    });
+  }
+
+  try {
+    const upstream = await fetch(url, {
+      method: 'HEAD',
+      redirect: 'follow',
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; VRStreetView/1.0)',
+      },
+    });
+    res.json({ url: upstream.url });
+  } catch (err) {
+    console.error('[resolve proxy]', err.message);
+    res.status(502).json({ error: 'Failed to resolve URL.' });
+  }
+});
+
 /* ─── Catch-all → serve index.html (SPA) ────────────────────────────────── */
 
 app.get('*', (_req, res) => {

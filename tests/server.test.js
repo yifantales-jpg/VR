@@ -125,6 +125,59 @@ describe('GET /api/photo', () => {
   });
 });
 
+describe('GET /api/resolve', () => {
+  it('returns 400 when url parameter is missing', async () => {
+    const res = await request(app).get('/api/resolve');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/url parameter required/);
+  });
+
+  it('returns 400 for an invalid (non-URL) value', async () => {
+    const res = await request(app).get('/api/resolve?url=not-a-url');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Invalid URL/);
+  });
+
+  it('returns 400 for a URL from a non-allowed host', async () => {
+    const res = await request(app).get(
+      '/api/resolve?url=https://example.com/some-path'
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/host not supported/);
+  });
+
+  it('returns 400 for a non-HTTP/HTTPS scheme', async () => {
+    const res = await request(app).get(
+      '/api/resolve?url=ftp://maps.app.goo.gl/abc'
+    );
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Only HTTP\/HTTPS/);
+  });
+
+  it('accepts maps.app.goo.gl URLs (passes host validation)', async () => {
+    // The endpoint will attempt a real HEAD request; since we have no network
+    // in test, we only verify it passes host validation (status is not 400).
+    const res = await request(app).get(
+      '/api/resolve?url=https://maps.app.goo.gl/bNzkVyTavYD2j4oz9'
+    );
+    expect(res.status).not.toBe(400);
+  });
+
+  it('accepts t.co URLs (passes host validation)', async () => {
+    const res = await request(app).get(
+      '/api/resolve?url=https://t.co/ReojxnBtnl'
+    );
+    expect(res.status).not.toBe(400);
+  });
+
+  it('accepts goo.gl URLs (passes host validation)', async () => {
+    const res = await request(app).get(
+      '/api/resolve?url=https://goo.gl/maps/abc123'
+    );
+    expect(res.status).not.toBe(400);
+  });
+});
+
 describe('Static file serving', () => {
   it('serves index.html at root', async () => {
     const res = await request(app).get('/');

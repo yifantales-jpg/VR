@@ -1,0 +1,19 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        // Meta Spatial SDK
+        maven { url 'https://maven.pkg.github.com/meta-quest/Meta-Spatial-SDK-Samples' }
+    }
+}
+
+rootProject.name = "VRStreetView"
+include ':app'

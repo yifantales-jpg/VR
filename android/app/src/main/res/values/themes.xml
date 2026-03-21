@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme -->
+    <style name="Theme.VRStreetView" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorPrimaryVariant">@color/accent_light</item>
+        <item name="colorOnPrimary">@color/bg_dark</item>
+        <item name="colorSurface">@color/bg_panel</item>
+        <item name="android:windowBackground">@color/bg_dark</item>
+        <item name="android:statusBarColor">@color/bg_dark</item>
+        <item name="android:navigationBarColor">@color/bg_dark</item>
+    </style>
+
+    <!-- Launcher activity — shows the search UI -->
+    <style name="Theme.VRStreetView.Launcher" parent="Theme.VRStreetView" />
+
+    <!-- Immersive VR activity — full-screen, no system UI -->
+    <style name="Theme.VRStreetView.Immersive" parent="Theme.VRStreetView">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+</resources>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VR Street View — Quest 3</title>
+  <meta name="description" content="Immersive Google Street View for Meta Quest 3">
+
+  <!-- A-Frame WebXR library -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ─── 2-D UI overlay (hidden when in VR) ──────────────────────────────── -->
+  <div id="ui-overlay">
+    <div id="header">
+      <h1>🌍 VR Street View</h1>
+      <p class="subtitle">Powered by Google Street View · Meta Quest 3</p>
+    </div>
+
+    <div id="search-panel">
+      <div class="input-row">
+        <input
+          type="text"
+          id="location-input"
+          placeholder="Enter address, landmark, or city…"
+          autocomplete="off"
+        />
+        <button id="search-btn" class="primary-btn">Explore</button>
+      </div>
+
+      <div id="quick-links">
+        <span class="quick-label">Try:</span>
+        <button class="quick-btn" data-location="Eiffel Tower, Paris">Eiffel Tower</button>
+        <button class="quick-btn" data-location="Times Square, New York">Times Square</button>
+        <button class="quick-btn" data-location="Shibuya Crossing, Tokyo">Shibuya</button>
+        <button class="quick-btn" data-location="Colosseum, Rome">Colosseum</button>
+      </div>
+
+      <div id="status-bar" class="hidden"></div>
+    </div>
+
+    <div id="api-key-panel">
+      <details>
+        <summary>⚙️ API Settings</summary>
+        <div class="settings-content">
+          <label for="api-key-input">Google Maps API Key</label>
+          <input
+            type="password"
+            id="api-key-input"
+            placeholder="AIza…"
+            autocomplete="off"
+          />
+          <button id="save-api-key" class="secondary-btn">Save Key</button>
+          <p class="hint">
+            Get a key at
+            <a href="https://developers.google.com/maps/documentation/javascript/get-api-key"
+               target="_blank" rel="noopener">Google Cloud Console</a>.
+            Enable the <em>Maps JavaScript API</em> and
+            <em>Street View Static API</em>.
+          </p>
+        </div>
+      </details>
+    </div>
+
+    <div id="enter-vr-panel" class="hidden">
+      <button id="enter-vr-btn" class="vr-btn">🥽 Enter VR</button>
+      <p class="vr-hint">Or open this page in your Quest 3 browser</p>
+    </div>
+  </div>
+
+  <!-- ─── A-Frame VR Scene ────────────────────────────────────────────────── -->
+  <a-scene
+    id="vr-scene"
+    class="hidden"
+    renderer="antialias: true; colorManagement: true; sortObjects: true; physicallyCorrectLights: true"
+    vr-mode-ui="enabled: true; enterVRButton: #aframe-vr-btn"
+    loading-screen="dotsColor: #fff; backgroundColor: #1a1a2e"
+    embedded
+  >
+    <!-- Asset management -->
+    <a-assets id="assets" timeout="30000">
+      <!-- The panorama canvas is generated dynamically in JS -->
+      <canvas id="panorama-canvas" width="4096" height="2048" crossorigin="anonymous"></canvas>
+    </a-assets>
+
+    <!-- Panorama sphere — the main Street View projection -->
+    <a-sky
+      id="panorama-sky"
+      src="#panorama-canvas"
+      rotation="0 -90 0"
+      material="shader: flat; side: back; npot: true"
+    ></a-sky>
+
+    <!-- Loading indicator (shown inside VR while fetching tiles) -->
+    <a-entity id="vr-loading" visible="false">
+      <a-text
+        value="Loading panorama…"
+        align="center"
+        color="#ffffff"
+        position="0 1.6 -3"
+        scale="1.5 1.5 1.5"
+      ></a-text>
+    </a-entity>
+
+    <!-- In-VR location label -->
+    <a-entity id="location-label">
+      <a-text
+        id="location-text"
+        value=""
+        align="center"
+        color="#ffffff"
+        position="0 -0.3 -3"
+        scale="0.8 0.8 0.8"
+        material="shader: flat"
+      ></a-text>
+    </a-entity>
+
+    <!-- Navigation links to adjacent Street View panoramas -->
+    <a-entity id="nav-links"></a-entity>
+
+    <!-- Camera rig with Quest 3 head tracking + optional controller navigation -->
+    <a-entity id="camera-rig" position="0 0 0">
+      <a-camera
+        id="main-camera"
+        look-controls="reverseMouseDrag: true; touchEnabled: true; magicWindowTrackingEnabled: true"
+        wasd-controls="enabled: false"
+        fov="90"
+      >
+        <!-- Gaze reticle for controller-free navigation -->
+        <a-entity
+          id="gaze-cursor"
+          cursor="fuse: true; fuseTimeout: 1500; rayOrigin: entity"
+          geometry="primitive: ring; radiusInner: 0.008; radiusOuter: 0.013; segmentsTheta: 32"
+          material="color: white; shader: flat; opacity: 0.85"
+          position="0 0 -0.75"
+          raycaster="objects: .nav-arrow; interval: 100; showLine: false"
+          animation__fusing="property: scale; startEvents: fusing; to: 1.5 1.5 1; dur: 1500; easing: linear"
+          animation__unfusing="property: scale; startEvents: mouseleave; to: 1 1 1; dur: 100"
+        ></a-entity>
+      </a-camera>
+
+      <!-- Left Quest 3 controller -->
+      <a-entity
+        id="left-hand"
+        hand-controls="hand: left; handModelStyle: lowPoly; color: #15ACCF"
+        laser-controls="hand: left"
+        raycaster="objects: .nav-arrow; showLine: true; lineColor: #4fc3f7; lineOpacity: 0.8"
+      ></a-entity>
+
+      <!-- Right Quest 3 controller -->
+      <a-entity
+        id="right-hand"
+        hand-controls="hand: right; handModelStyle: lowPoly; color: #15ACCF"
+        laser-controls="hand: right"
+        raycaster="objects: .nav-arrow; showLine: true; lineColor: #4fc3f7; lineOpacity: 0.8"
+      ></a-entity>
+    </a-entity>
+  </a-scene>
+
+  <!-- Hidden button used by A-Frame's VR-mode-ui -->
+  <button id="aframe-vr-btn" style="display:none"></button>
+
+  <!-- App scripts -->
+  <script src="js/street-view-service.js"></script>
+  <script src="js/panorama-components.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

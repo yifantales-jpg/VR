@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AndroidManifest.xml — VR Street View for Meta Quest 3.
+
+    Key Quest 3 / VR flags:
+      • android.hardware.vr.high_performance  – requests VR high-performance mode.
+      • com.oculus.intent.category.VR         – marks the app as a VR app for the
+                                                Meta Quest launcher.
+      • com.samsung.android.vr.application.mode – used by some GearVR-based routing
+                                                  (harmless on Quest).
+      • android:isGame="true"                 – hints to the OS to allow sustained
+                                                high-performance rendering.
+      • configChanges                         – prevents Activity restart on sensor /
+                                                orientation changes (critical for VR).
+-->
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.vrstreetview">
+
+    <!-- ── Permissions ──────────────────────────────────────────────── -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- ── Hardware features ────────────────────────────────────────── -->
+    <!-- VR high-performance mode (Quest 3 supports this) -->
+    <uses-feature
+        android:name="android.hardware.vr.high_performance"
+        android:required="false" />
+
+    <!-- WebXR in WebView needs camera for passthrough on Quest 3 -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
+    <!-- Touch screen not required – Quest 3 uses controllers -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
+    <application
+        android:name=".VRStreetViewApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:theme="@style/Theme.VRStreetView"
+        android:supportsRtl="true"
+        android:hardwareAccelerated="true"
+        android:isGame="true">
+
+        <!-- ── Google Maps API key ──────────────────────────────────── -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${googleMapsKey}" />
+
+        <!-- ── Main launcher Activity ───────────────────────────────── -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
+            android:theme="@style/Theme.VRStreetView.Launcher">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <!-- Mark this as a Quest VR app -->
+                <category android:name="com.oculus.intent.category.VR" />
+            </intent-filter>
+        </activity>
+
+        <!-- ── Immersive VR Activity ─────────────────────────────────── -->
+        <!--
+            StreetViewVRActivity hosts the WebView that renders the A-Frame
+            WebXR scene in immersive mode on Quest 3.
+        -->
+        <activity
+            android:name=".StreetViewVRActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
+            android:theme="@style/Theme.VRStreetView.Immersive" />
+
+    </application>
+</manifest>

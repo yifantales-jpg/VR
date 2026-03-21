@@ -1,0 +1,36 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables (contain API keys — never commit)
+.env
+.env.local
+.env.*.local
+
+# Android build artifacts
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/release/
+*.apk
+*.aab
+*.keystore
+
+# Android Studio / IDE
+.idea/
+*.iml
+*.iws
+.DS_Store
+
+# Gradle wrapper binaries (checked in by convention but excluded here for size)
+android/gradle/wrapper/gradle-wrapper.jar
+
+# Jest coverage
+coverage/
+
+# Logs
+logs/
+*.log

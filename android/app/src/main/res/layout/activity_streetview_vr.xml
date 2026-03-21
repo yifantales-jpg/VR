@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    activity_streetview_vr.xml
+    Full-screen WebView container for the immersive A-Frame VR scene.
+-->
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_dark">
+
+    <!-- The WebView takes the entire screen -->
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:hardwareAccelerated="true" />
+
+    <!-- Native loading overlay shown until the web page finishes loading -->
+    <LinearLayout
+        android:id="@+id/loadingOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@color/bg_dark">
+
+        <ProgressBar
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:indeterminateTint="@color/accent" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/loading_vr"
+            android:textColor="@color/text_muted"
+            android:textSize="16sp" />
+
+    </LinearLayout>
+
+    <!-- Error message shown when the web app reports a fatal error -->
+    <TextView
+        android:id="@+id/tvError"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="24dp"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
+        android:background="#CC000000"
+        android:textColor="#FFEF9A9A"
+        android:textSize="14sp"
+        android:visibility="gone" />
+
+</FrameLayout>

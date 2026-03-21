@@ -23,7 +23,7 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
 │  │                         └─────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
-         ▲  HTTP / WebXR
+         ▲  HTTPS / WebXR
          │
 ┌────────┴────────────────────────────────────────────────────────────┐
 │  Node.js Server (server.js)                                         │
@@ -73,18 +73,20 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
 2. **Start the server:**
    ```bash
    npm start
-   # → Server running on http://localhost:3000
+   # → HTTP  server running on http://localhost:3000
+   # → HTTPS server running on https://localhost:3443
    ```
 
 3. **Open in Quest 3:**
    - Find your machine's local IP (e.g. `192.168.1.42`).
    - Open the **Meta Browser** on your Quest 3.
-   - Navigate to `http://192.168.1.42:3000`.
+   - Navigate to `https://192.168.1.42:3443`.
+   - The browser will show a **security warning** about the self-signed certificate — tap **Advanced → Accept** to proceed (this is expected for local development).
    - Paste any Google Maps Street View URL into the input box and press **Load**.
    - Press **Enter VR** — the panorama loads on a 360° sphere.
    - Use your **controllers** or **head gaze** to follow the direction arrows and walk through Street View.
 
-   > **Tip:** Your PC and Quest 3 must be on the same Wi-Fi network.
+   > **Tip:** Your PC and Quest 3 must be on the same Wi-Fi network. HTTPS is required for WebXR immersive sessions.
 
 ---
 
@@ -96,15 +98,16 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
 2. Find your machine's LAN IP:
    - **macOS/Linux:** `ifconfig | grep "inet "`
    - **Windows:** `ipconfig` → look for "IPv4 Address"
-3. On the Quest 3, open **Meta Browser** and go to `http://<your-LAN-IP>:3000`.
-4. Paste a Google Maps Street View URL (e.g. from `maps.google.com` on desktop) and tap **Load**.
-5. Tap **Enter VR** to enter immersive mode.
+3. On the Quest 3, open **Meta Browser** and go to `https://<your-LAN-IP>:3443`.
+4. Accept the self-signed certificate warning (tap **Advanced → Accept**).
+5. Paste a Google Maps Street View URL (e.g. from `maps.google.com` on desktop) and tap **Load**.
+6. Tap **Enter VR** to enter immersive mode.
 
 ### Option B — Sideloaded APK (Android native shell)
 
 See the [Android App](#android-app) section below for build and install instructions.
 
-> **Note:** WebXR's immersive-vr session works in Meta Browser on Quest 3 without any special flags or developer settings.
+> **Why HTTPS?** WebXR's `immersive-vr` session requires a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts). The server automatically generates a self-signed certificate so you don't need to configure anything for local testing.
 
 ---
 
@@ -115,10 +118,10 @@ The native Android wrapper launches the web app inside a full-screen `WebView` c
 ### Build
 
 1. Open `android/` in **Android Studio**.
-2. In `android/local.properties`, set the server URL (your LAN IP while developing, production HTTPS URL when deploying):
+2. In `android/local.properties`, set the server URL (use the HTTPS port for local development, production HTTPS URL when deploying):
    ```properties
-   # For Quest 3 on Wi-Fi — use your machine's LAN IP:
-   VR_SERVER_URL=http://192.168.1.42:3000
+   # For Quest 3 on Wi-Fi — use your machine's LAN IP with HTTPS port:
+   VR_SERVER_URL=https://192.168.1.42:3443
    # For production (WebXR requires HTTPS):
    # VR_SERVER_URL=https://your-deployment.example.com
    ```
@@ -192,8 +195,16 @@ Tests cover:
 
 For production deployment (HTTPS required for WebXR):
 
-1. Deploy to any HTTPS host (Heroku, Railway, Fly.io, etc.). No environment variables are required — the app uses Google's public CBK tile service with no API key.
-2. Update `WEB_APP_URL` in `android/app/src/main/java/com/vrstreetview/StreetViewVRActivity.kt` to your production URL.
+1. Deploy to any HTTPS host (Heroku, Railway, Fly.io, etc.). No Google API keys are required.
+   - The server auto-generates a self-signed certificate when `SSL_CERT_FILE` / `SSL_KEY_FILE` are not set (suitable for local testing).
+   - On a managed host, TLS is typically terminated at the reverse proxy — point `VR_SERVER_URL` to the `https://` address.
+   - For self-hosted deployments, supply a real certificate via environment variables:
+     ```bash
+     SSL_CERT_FILE=/etc/letsencrypt/live/example.com/fullchain.pem
+     SSL_KEY_FILE=/etc/letsencrypt/live/example.com/privkey.pem
+     HTTPS_PORT=443 npm start
+     ```
+2. Update `VR_SERVER_URL` in `android/local.properties` to your production `https://` URL.
 3. Rebuild and sideload the APK.
 
 ---

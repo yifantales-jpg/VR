@@ -588,10 +588,10 @@ AFRAME.registerComponent('vr-controller-input', {
 
   _updateFactsText(text) {
     if (!this._factsTextEl) return;
-    const normalised = typeof text === 'string'
+    const normalized = typeof text === 'string'
       ? text.replace(/\s*\n+\s*/g, ' ').replace(/\s+/g, ' ').trim()
       : text;
-    this._factsTextEl.setAttribute('value', normalised);
+    this._factsTextEl.setAttribute('value', normalized);
   },
 
   /**

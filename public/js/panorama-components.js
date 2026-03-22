@@ -324,10 +324,19 @@ AFRAME.registerComponent('vr-controller-input', {
       // Get the XR ArrayCamera so we can modify both eye sub-cameras.
       const xrCamera = renderer.xr.getCamera();
       xrCamera.cameras.forEach(eyeCam => {
-        // projectionMatrix is column-major; elements[0] = m00, elements[5] = m11.
-        // Scaling both by zoomScale narrows (or widens) the effective FOV.
+        // projectionMatrix is column-major:
+        //   elements[0] = focal-X (m00), elements[5] = focal-Y (m11)
+        //   elements[8] = center-X offset (m02), elements[9] = center-Y offset (m12)
+        //
+        // Scaling all four uniformly by zoomScale scales NDC coordinates
+        // around (0,0) — the correct "digital zoom" that stays centred on
+        // wherever the user is looking and does not distort when turning head.
+        // Scaling only [0] and [5] without [8]/[9] shifts the optical centre
+        // relative to the zoom level, causing off-axis distortion.
         eyeCam.projectionMatrix.elements[0] *= zoomScale;
         eyeCam.projectionMatrix.elements[5] *= zoomScale;
+        eyeCam.projectionMatrix.elements[8] *= zoomScale;
+        eyeCam.projectionMatrix.elements[9] *= zoomScale;
         eyeCam.projectionMatrixInverse
           .copy(eyeCam.projectionMatrix)
           .invert();

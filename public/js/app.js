@@ -49,8 +49,15 @@ function clearStatus() {
 }
 
 function setLoading(loading) {
-  $loadBtn.disabled = loading;
-  $loadBtn.textContent = loading ? 'Loading…' : 'Load';
+  if (loading) {
+    $loadBtn.classList.add('hidden');
+    $urlInput.classList.add('loading');
+    $urlInput.style.setProperty('--progress', '0%');
+  } else {
+    $loadBtn.classList.remove('hidden');
+    $urlInput.classList.remove('loading');
+    $urlInput.style.removeProperty('--progress');
+  }
   if (loading) setStatus('Fetching panorama…', 'info');
 }
 
@@ -186,6 +193,7 @@ async function loadPanorama(panoData, showScene = true) {
     await svc.stitchPanorama(panoData.panoId, $panoramaCanvas, (loaded, total) => {
       tilesLoaded = loaded;
       const pct = Math.round((loaded / total) * 100);
+      $urlInput.style.setProperty('--progress', `${pct}%`);
       setStatus(`Loading tiles: ${pct}%`, 'info');
       if (isVRMode) showVRLoadingIndicator(true, `Loading ${pct}%`);
     });
@@ -247,6 +255,10 @@ function loadPhotoSphereImage(photoUrl, width, height) {
 function showUIOverlay() {
   $uiOverlay.classList.remove('fade-out');
   $uiOverlay.style.display = '';
+  // Ensure the load button is visible (hidden during loading / VR session).
+  $loadBtn.classList.remove('hidden');
+  $urlInput.classList.remove('loading');
+  $urlInput.style.removeProperty('--progress');
   isVRMode = false;
 }
 

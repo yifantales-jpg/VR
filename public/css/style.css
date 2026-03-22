@@ -32,10 +32,11 @@ html, body {
   position: fixed;
   inset: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: 8px;
   padding: 24px;
   background:
     radial-gradient(ellipse at 50% 0%, rgba(79,195,247,0.12) 0%, transparent 65%),
@@ -73,71 +74,78 @@ html, body {
   max-width: 480px;
 }
 
-/* ── Search panel ──────────────────────────────────────────────────────── */
+/* ── URL input row ─────────────────────────────────────────────────────── */
 
-#search-panel {
-  width: 100%;
-  max-width: 560px;
-  background: var(--bg-panel);
-  border: 1px solid rgba(79,195,247,0.2);
-  border-radius: var(--radius);
-  padding: 24px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
+#ui-overlay #status-bar {
+  flex: 0 0 100%;
+  text-align: center;
 }
 
-input[type="text"],
-input[type="password"] {
-  width: 100%;
-  padding: 12px 16px;
-  font-size: 1rem;
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 8px;
-  background: rgba(255,255,255,0.06);
-  color: var(--text);
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-input[type="text"]::placeholder,
-input[type="password"]::placeholder {
-  color: var(--text-muted);
-}
-
-input[type="text"]:focus,
-input[type="password"]:focus {
-  border-color: var(--accent);
-  background: rgba(79,195,247,0.06);
-}
-
-.load-row {
-  display: flex;
-  justify-content: center;
-  margin-top: 12px;
-}
-
-/* ── Buttons ───────────────────────────────────────────────────────────── */
-
-.primary-btn {
-  padding: 12px 24px;
-  font-size: 1rem;
-  font-weight: 600;
+/* Hairline text input – visually a single 1 px line */
+#url-input {
+  flex: 0 1 480px;
+  min-width: 120px;
+  height: 2px;
+  padding: 0;
   border: none;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #0d0d1a;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.2s, transform 0.1s;
+  border-bottom: 1px solid rgba(255,255,255,0.35);
+  border-radius: 0;
+  background: transparent;
+  color: transparent;          /* text invisible in resting state */
+  caret-color: var(--accent);  /* but cursor remains visible */
+  outline: none;
+  font-size: 0.9rem;
+  transition: border-color 0.2s, height 0.2s, color 0.2s, background 0.2s;
+  /* Extend click / tap target without changing visual height */
+  box-shadow: 0 12px 0 transparent, 0 -12px 0 transparent;
 }
 
-.primary-btn:hover  { background: var(--accent-h); }
-.primary-btn:active { transform: scale(0.97); }
-.primary-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
+#url-input:focus {
+  height: 24px;
+  color: var(--text);
+  border-color: var(--accent);
 }
+
+#url-input::placeholder { color: transparent; }
+#url-input:focus::placeholder { color: var(--text-muted); }
+
+/* Progress-bar state – replaces the hairline while loading */
+#url-input.loading {
+  height: 4px;
+  color: transparent;
+  border-color: transparent;
+  /* animated indeterminate bar when no specific progress is known */
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--progress, 0%),
+    rgba(79,195,247,0.15) var(--progress, 0%)
+  );
+  pointer-events: none;
+}
+
+/* ── Load button ───────────────────────────────────────────────────────── */
+
+#load-btn {
+  flex: none;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: color 0.2s, transform 0.1s;
+}
+
+#load-btn:hover  { color: var(--accent-h); }
+#load-btn:active { transform: scale(0.9); }
+
+/* ── Utility ───────────────────────────────────────────────────────────── */
 
 .secondary-btn {
   padding: 9px 18px;
@@ -152,15 +160,6 @@ input[type="password"]:focus {
 }
 
 .secondary-btn:hover { background: rgba(79,195,247,0.12); }
-
-/* ── Quick-link buttons ────────────────────────────────────────────────── */
-
-.url-hint {
-  margin-top: 12px;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
 
 /* ── Status bar ────────────────────────────────────────────────────────── */
 

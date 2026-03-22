@@ -448,6 +448,7 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
       data.candidates[0].content &&
       data.candidates[0].content.parts;
     const facts = Array.isArray(parts)
+      // Preserve Gemini's exact spacing/formatting across parts.
       ? parts.map((part) => part && part.text).filter(Boolean).join('')
       : '';
     res.json({ facts });

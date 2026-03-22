@@ -52,7 +52,11 @@ describe('POST /api/ai-facts response assembly', () => {
     expect(res.body.facts).toBe('You are looking at the Eiffel Tower. It was completed in 1889.');
 
     const requestBody = JSON.parse(fetch.mock.calls[0][1].body);
-    const promptText  = requestBody.contents[0].parts[1].text;
+    const requestParts = requestBody.contents && requestBody.contents[0] && requestBody.contents[0].parts;
+    expect(Array.isArray(requestParts)).toBe(true);
+    const promptPart = requestParts.find((part) => part && typeof part.text === 'string');
+    expect(promptPart).toBeTruthy();
+    const promptText = promptPart.text;
     expect(promptText.startsWith('You are looking at')).toBe(true);
     expect(promptText).toContain('Begin with "You are looking at..."');
   });

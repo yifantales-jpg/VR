@@ -37,7 +37,7 @@ html, body {
   justify-content: center;
   gap: 8px;
   padding: 24px;
-  background: --bg-dark;
+  background: var(--bg-dark);
   z-index: 100;
   transition: opacity 0.4s ease;
 }
@@ -106,16 +106,28 @@ html, body {
 #url-input::placeholder { color: var(--text-muted); }
 
 /* Progress-bar state – replaces the hairline while loading */
+@keyframes progress-shimmer {
+  from { background-position: -100% 0, 0 0; }
+  to   { background-position: 200%  0, 0 0; }
+}
+
 #url-input.loading {
   height: 4px;
   color: transparent;
   border-color: transparent;
-  /* animated indeterminate bar when no specific progress is known */
-  background: linear-gradient(
-    to right,
-    var(--accent) var(--progress, 0%),
-    rgba(79,195,247,0.15) var(--progress, 0%)
-  );
+  /* Shimmer strip on top of the determinate fill */
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.25), transparent) no-repeat,
+    linear-gradient(
+      to right,
+      var(--accent) var(--progress, 0%),
+      rgba(79,195,247,0.15) var(--progress, 0%)
+    );
+  background-size: 35% 100%, 100% 100%;
+  background-position: -100% 0, 0 0;
+  /* Override parent transition so the animation isn't interrupted */
+  transition: border-color 0.2s, height 0.2s, color 0.2s;
+  animation: progress-shimmer 1.5s ease-in-out infinite;
   pointer-events: none;
 }
 

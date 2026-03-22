@@ -359,22 +359,21 @@ AFRAME.registerComponent('vr-controller-input', {
 
     this._factsPanelEl = document.createElement('a-plane');
     this._factsPanelEl.setAttribute('width',    '0.95');
-    this._factsPanelEl.setAttribute('height',   '0.5');
+    this._factsPanelEl.setAttribute('height',   '0.8');
     this._factsPanelEl.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.4; transparent: true');
     this._factsFrameEl.appendChild(this._factsPanelEl);
 
     this._factsTextEl = document.createElement('a-text');
     this._factsTextEl.setAttribute('value',      '');
-    this._factsTextEl.setAttribute('align',      'center');
+    this._factsTextEl.setAttribute('align',      'left');
     this._factsTextEl.setAttribute('anchor',     'center');
-    this._factsTextEl.setAttribute('baseline',   'center');
+    this._factsTextEl.setAttribute('baseline',   'top');
     this._factsTextEl.setAttribute('color',      '#e8e8e8');
     this._factsTextEl.setAttribute('outline-color', '#4fc3f7');
     this._factsTextEl.setAttribute('outline-width', '0.02');
-    this._factsTextEl.setAttribute('position',   '0 0 0.002');
-    this._factsTextEl.setAttribute('width',      '0.9');
-    this._factsTextEl.setAttribute('wrap-count', '52');
-    this._factsTextEl.setAttribute('scale',      '0.55 0.55 0.55');
+    this._factsTextEl.setAttribute('position',   '0 0.35 0.002');
+    this._factsTextEl.setAttribute('width',      '0.85');
+    this._factsTextEl.setAttribute('wrap-count', '40');
     this._factsFrameEl.appendChild(this._factsTextEl);
 
     camera.appendChild(this._factsFrameEl);
@@ -472,11 +471,8 @@ AFRAME.registerComponent('vr-controller-input', {
     const camera = this._cameraEl;
     if (!camera || !this._panoramaCanvas || !this._zoomCanvas) return;
 
-    const cameraObj = (camera.getObject3D && camera.getObject3D('camera')) || camera.object3D;
+    const cameraObj = camera.object3D;
     if (!cameraObj) return;
-    if (cameraObj.updateMatrixWorld) {
-      cameraObj.updateMatrixWorld(true);
-    }
 
     // Camera world-space look direction (pre-allocated vectors reused each tick).
     this._worldDir.set(0, 0, -1);

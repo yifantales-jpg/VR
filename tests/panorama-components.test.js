@@ -568,6 +568,9 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._factsFrameEl.attributes.position).toBe('0 0 -0.7');
     expect(inst._factsPanelEl.attributes.width).toBe('0.95');
     expect(inst._factsPanelEl.attributes.height).toBe('0.5');
+    expect(inst._factsPanelEl.attributes.material)
+      .toBe('shader: flat; color: #111111; opacity: 0.4; transparent: true');
+    expect(inst._factsFrameEl.appendChild).toHaveBeenCalledWith(inst._factsPanelEl);
     expect(inst._factsTextEl.attributes.align).toBe('center');
     expect(inst._factsTextEl.attributes.anchor).toBe('center');
     expect(inst._factsTextEl.attributes.baseline).toBe('center');

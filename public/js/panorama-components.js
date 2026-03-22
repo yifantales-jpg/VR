@@ -306,15 +306,15 @@ AFRAME.registerComponent('vr-controller-input', {
 
     // Thin dark border (slightly larger than the image).
     const border = document.createElement('a-plane');
-    border.setAttribute('width',    '0.38');
-    border.setAttribute('height',   '0.38');
-    border.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.9; transparent: true');
+    border.setAttribute('width',    '0.62');
+    border.setAttribute('height',   '0.62');
+    border.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.35; transparent: true');
     this._zoomFrameEl.appendChild(border);
 
     // Image plane – carries the CanvasTexture.
     this._zoomPlaneEl = document.createElement('a-plane');
-    this._zoomPlaneEl.setAttribute('width',    '0.35');
-    this._zoomPlaneEl.setAttribute('height',   '0.35');
+    this._zoomPlaneEl.setAttribute('width',    '0.60');
+    this._zoomPlaneEl.setAttribute('height',   '0.60');
     this._zoomPlaneEl.setAttribute('position', '0 0 0.001');
     this._zoomPlaneEl.setAttribute('material', 'shader: flat; side: front');
     this._zoomFrameEl.appendChild(this._zoomPlaneEl);
@@ -350,18 +350,18 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsFrameEl.setAttribute('visible', false);
 
     const bg = document.createElement('a-plane');
-    bg.setAttribute('width',    '0.65');
-    bg.setAttribute('height',   '0.45');
-    bg.setAttribute('material', 'shader: flat; color: #0d1117; opacity: 0.92; transparent: true');
+    bg.setAttribute('width',    '0.90');
+    bg.setAttribute('height',   '0.65');
+    bg.setAttribute('material', 'shader: flat; color: #0d1117; opacity: 0.65; transparent: true');
     this._factsFrameEl.appendChild(bg);
 
     this._factsTextEl = document.createElement('a-text');
     this._factsTextEl.setAttribute('value',      '');
     this._factsTextEl.setAttribute('align',      'left');
     this._factsTextEl.setAttribute('color',      '#e8e8e8');
-    this._factsTextEl.setAttribute('position',   '-0.3 0.18 0.002');
-    this._factsTextEl.setAttribute('width',      '0.6');
-    this._factsTextEl.setAttribute('wrap-count', '36');
+    this._factsTextEl.setAttribute('position',   '-0.43 0.28 0.002');
+    this._factsTextEl.setAttribute('width',      '0.84');
+    this._factsTextEl.setAttribute('wrap-count', '46');
     this._factsTextEl.setAttribute('scale',      '0.5 0.5 0.5');
     this._factsFrameEl.appendChild(this._factsTextEl);
 
@@ -424,6 +424,11 @@ AFRAME.registerComponent('vr-controller-input', {
 
   _showZoomFrame() {
     if (!this._zoomFrameEl) return;
+    // Remove any lingering hide/show animations before restarting so the
+    // show animation always fires even when the frame was previously closed.
+    this._zoomFrameEl.removeAttribute('animation__hide');
+    this._zoomFrameEl.removeAttribute('animation__show');
+    this._zoomFrameEl.setAttribute('scale', '0.01 0.01 0.01');
     this._zoomFrameEl.setAttribute('visible', true);
     this._zoomFrameEl.setAttribute('animation__show',
       'property: scale; from: 0.01 0.01 0.01; to: 1 1 1; dur: 200; easing: easeOutBack');
@@ -527,6 +532,11 @@ AFRAME.registerComponent('vr-controller-input', {
   _showFactsFrame(text) {
     if (!this._factsFrameEl) return;
     if (text) this._updateFactsText(text);
+    // Remove any lingering hide/show animations before restarting so the
+    // show animation always fires even when the panel was previously closed.
+    this._factsFrameEl.removeAttribute('animation__hide');
+    this._factsFrameEl.removeAttribute('animation__show');
+    this._factsFrameEl.setAttribute('scale', '0.01 0.01 0.01');
     this._factsFrameEl.setAttribute('visible', true);
     this._factsFrameEl.setAttribute('animation__show',
       'property: scale; from: 0.01 0.01 0.01; to: 1 1 1; dur: 250; easing: easeOutBack');

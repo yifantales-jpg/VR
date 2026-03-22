@@ -547,6 +547,10 @@ describe('vr-controller-input floating windows', () => {
         expected: 'First sentence. Second sentence.',
       },
       {
+        input: 'First  sentence.  Second  sentence.',
+        expected: 'First sentence. Second sentence.',
+      },
+      {
         input: 'Single sentence only.',
         expected: 'Single sentence only.',
       },

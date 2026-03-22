@@ -475,9 +475,7 @@ AFRAME.registerComponent('vr-controller-input', {
 
     const cameraObj = (camera.getObject3D && camera.getObject3D('camera')) || camera.object3D;
     if (!cameraObj) return;
-    if (camera.object3D && camera.object3D.updateMatrixWorld) {
-      camera.object3D.updateMatrixWorld(true);
-    } else if (cameraObj.updateMatrixWorld) {
+    if (cameraObj.updateMatrixWorld) {
       cameraObj.updateMatrixWorld(true);
     }
 

@@ -418,19 +418,17 @@ describe('_updateZoomCanvas UV mapping', () => {
     expect(zoomCtx.drawImage).not.toHaveBeenCalled();
   });
 
-  test('prefers the Three.js camera object when available', () => {
+  test('uses the entity object3D (same parent as zoom frame) for gaze direction', () => {
     const { inst } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
-    const cameraObj = { getWorldQuaternion: jest.fn(() => inst._worldQuat) };
-    const fallbackObj = { getWorldQuaternion: jest.fn(() => inst._worldQuat) };
+    const entityObj = { getWorldQuaternion: jest.fn(() => inst._worldQuat) };
     inst._cameraEl = {
-      getObject3D: jest.fn(name => (name === 'camera' ? cameraObj : null)),
-      object3D: fallbackObj,
+      getObject3D: jest.fn(name => (name === 'camera' ? { getWorldQuaternion: jest.fn() } : null)),
+      object3D: entityObj,
     };
 
     inst._updateZoomCanvas();
 
-    expect(cameraObj.getWorldQuaternion).toHaveBeenCalled();
-    expect(fallbackObj.getWorldQuaternion).not.toHaveBeenCalled();
+    expect(entityObj.getWorldQuaternion).toHaveBeenCalled();
   });
 });
 
@@ -599,17 +597,17 @@ describe('vr-controller-input floating windows', () => {
 
     expect(inst._factsFrameEl.attributes.position).toBe('0 0 -0.7');
     expect(inst._factsPanelEl.attributes.width).toBe('0.95');
-    expect(inst._factsPanelEl.attributes.height).toBe('0.5');
+    expect(inst._factsPanelEl.attributes.height).toBe('0.8');
     expect(inst._factsPanelEl.attributes.material)
       .toBe('shader: flat; color: #111111; opacity: 0.4; transparent: true');
     expect(inst._factsFrameEl.appendChild).toHaveBeenCalledWith(inst._factsPanelEl);
-    expect(inst._factsTextEl.attributes.align).toBe('center');
+    expect(inst._factsTextEl.attributes.align).toBe('left');
     expect(inst._factsTextEl.attributes.anchor).toBe('center');
-    expect(inst._factsTextEl.attributes.baseline).toBe('center');
-    expect(inst._factsTextEl.attributes.position).toBe('0 0 0.002');
-    expect(inst._factsTextEl.attributes.width).toBe('0.9');
-    expect(inst._factsTextEl.attributes['wrap-count']).toBe('52');
-    expect(inst._factsTextEl.attributes.scale).toBe('0.55 0.55 0.55');
+    expect(inst._factsTextEl.attributes.baseline).toBe('top');
+    expect(inst._factsTextEl.attributes.position).toBe('0 0.35 0.002');
+    expect(inst._factsTextEl.attributes.width).toBe('0.85');
+    expect(inst._factsTextEl.attributes['wrap-count']).toBe('40');
+    expect(inst._factsTextEl.attributes.scale).toBeUndefined();
     expect(inst._cameraEl.appendChild).toHaveBeenCalledWith(inst._factsFrameEl);
 
     global.document = originalDocument;

@@ -430,7 +430,7 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
             ],
           },
         ],
-        generationConfig: { maxOutputTokens: 400 },
+        generationConfig: { maxOutputTokens: 1024 },
       }),
       timeout: 30000,
     });

@@ -35,16 +35,19 @@
  *
  *   POST /api/ai-facts
  *        Accept a base64 JPEG snapshot of the current view and an optional
- *        location description; query the Meta AI (Llama API) for amazing
+ *        location description; query the Google Gemini API for amazing
  *        facts about the scene and return them as text.
- *        Requires META_AI_API_KEY environment variable.
+ *        Requires GEMINI_API_KEY environment variable.
  *
  *   GET  /health
  *        Health-check (returns 200 OK).
  *
  * Additional environment variables:
- *   META_AI_API_KEY – API key for the Llama API (https://api.llama.com).
- *                     Required for the /api/ai-facts endpoint.
+ *   GEMINI_API_KEY – API key for the Google Gemini API
+ *                    (https://aistudio.google.com/app/apikey).
+ *                    Required for the /api/ai-facts endpoint.
+ *                    For local testing, set it in your shell before starting
+ *                    the server:  export GEMINI_API_KEY=your_key_here
  */
 
 'use strict';
@@ -367,16 +370,18 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
   }
 });
 
-/* ─── Meta AI facts endpoint ─────────────────────────────────────────────── */
+/* ─── Google Gemini AI facts endpoint ───────────────────────────────────── */
 
 /**
  * POST /api/ai-facts
  *
  * Accepts a base64-encoded JPEG snapshot of the current panorama view (as a
  * data URL) and an optional location description.  Forwards the image to the
- * Meta AI Llama API and returns a short list of amazing facts about the scene.
+ * Google Gemini API and returns a short list of amazing facts about the scene.
  *
- * Requires the META_AI_API_KEY environment variable (Llama API key).
+ * Requires the GEMINI_API_KEY environment variable (Google AI Studio API key).
+ * To obtain a key visit https://aistudio.google.com/app/apikey.
+ * For local testing: export GEMINI_API_KEY=your_key_here  (then npm start)
  *
  * Request body (JSON, max 4 MB):
  *   { image: "data:image/jpeg;base64,…", description: "Location name" }
@@ -385,9 +390,9 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
  *   { facts: "…interesting facts…" }
  */
 app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req, res) => {
-  const apiKey = process.env.META_AI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(503).json({ error: 'AI service not configured (META_AI_API_KEY not set).' });
+    return res.status(503).json({ error: 'AI service not configured (GEMINI_API_KEY not set).' });
   }
 
   const { image, description } = req.body || {};
@@ -395,28 +400,37 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
     return res.status(400).json({ error: 'image field required (base64 data URL).' });
   }
 
+  // Split "data:<mimeType>;base64,<data>" into its components for Gemini's
+  // inlineData format.
+  const dataUrlMatch = image.match(/^data:([^;]+);base64,(.+)$/);
+  if (!dataUrlMatch) {
+    return res.status(400).json({ error: 'image field required (base64 data URL).' });
+  }
+  const mimeType  = dataUrlMatch[1];
+  const imageData = dataUrlMatch[2];
+
   const locationHint = description ? ` at "${description}"` : '';
   const prompt = `This is a Street View panorama${locationHint}. Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.`;
 
+  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+
   try {
-    const upstream = await fetch('https://api.llama.com/v1/chat/completions', {
+    const upstream = await fetch(geminiUrl, {
       method: 'POST',
       headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type':    'application/json',
+        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        model: 'Llama-4-Scout-17B-16E-Instruct',
-        messages: [
+        contents: [
           {
-            role:    'user',
-            content: [
-              { type: 'image_url', image_url: { url: image } },
-              { type: 'text',      text: prompt },
+            parts: [
+              { inlineData: { mimeType, data: imageData } },
+              { text: prompt },
             ],
           },
         ],
-        max_completion_tokens: 400,
+        generationConfig: { maxOutputTokens: 400 },
       }),
       timeout: 30000,
     });
@@ -428,10 +442,12 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
     }
 
     const data  = await upstream.json();
-    const facts = (data.choices &&
-                   data.choices[0] &&
-                   data.choices[0].message &&
-                   data.choices[0].message.content) || '';
+    const facts = (data.candidates &&
+                   data.candidates[0] &&
+                   data.candidates[0].content &&
+                   data.candidates[0].content.parts &&
+                   data.candidates[0].content.parts[0] &&
+                   data.candidates[0].content.parts[0].text) || '';
     res.json({ facts });
 
   } catch (err) {

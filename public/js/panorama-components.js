@@ -472,11 +472,11 @@ AFRAME.registerComponent('vr-controller-input', {
     this._worldDir.applyQuaternion(camera.object3D.getWorldQuaternion(this._worldQuat));
     const worldDir = this._worldDir;
 
-    // Convert sky Y-rotation (degrees) to radians so we can un-rotate.
+    // Read the sky's actual Object3D Y-rotation (radians) so the crop uses
+    // the exact same transform that Three.js applies when rendering the sphere.
     let skyYRad = 0;
-    if (this._skyEl) {
-      const skyRot = this._skyEl.getAttribute('rotation');
-      if (skyRot) skyYRad = (skyRot.y || 0) * Math.PI / 180;
+    if (this._skyEl && this._skyEl.object3D) {
+      skyYRad = this._skyEl.object3D.rotation.y || 0;
     }
 
     // Rotate direction by the inverse of the sky's Y rotation to get the

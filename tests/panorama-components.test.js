@@ -369,7 +369,7 @@ describe('_updateZoomCanvas UV mapping', () => {
     };
     inst._worldQuat = {};
     inst._cameraEl  = { object3D: { getWorldQuaternion: () => inst._worldQuat } };
-    inst._skyEl     = { getAttribute: () => ({ y: skyYDeg }) };
+    inst._skyEl     = { object3D: { rotation: { y: skyYDeg * Math.PI / 180 } } };
     inst._panoramaCanvas = panoCanvas;
     inst._zoomCanvas     = zoomCanvas;
     inst._zoomTexture    = null;

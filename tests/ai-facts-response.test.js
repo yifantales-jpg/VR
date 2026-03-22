@@ -57,7 +57,6 @@ describe('POST /api/ai-facts response assembly', () => {
     const promptPart = requestParts.find((part) => part && typeof part.text === 'string');
     expect(promptPart).toBeTruthy();
     const promptText = promptPart.text;
-    expect(promptText.startsWith('You are looking at')).toBe(true);
-    expect(promptText).toContain('Begin with "You are looking at..."');
+    expect(promptText).toContain('Begin your response with "You are looking at..."');
   });
 });

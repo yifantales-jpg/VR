@@ -361,7 +361,6 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsPanelEl.setAttribute('width',    '0.95');
     this._factsPanelEl.setAttribute('height',   '0.5');
     this._factsPanelEl.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.4; transparent: true');
-    this._factsPanelEl.setAttribute('position', '0 0 0');
     this._factsFrameEl.appendChild(this._factsPanelEl);
 
     this._factsTextEl = document.createElement('a-text');

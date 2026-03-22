@@ -417,6 +417,21 @@ describe('_updateZoomCanvas UV mapping', () => {
     expect(zoomCtx.clearRect).not.toHaveBeenCalled();
     expect(zoomCtx.drawImage).not.toHaveBeenCalled();
   });
+
+  test('prefers the Three.js camera object when available', () => {
+    const { inst } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
+    const cameraObj = { getWorldQuaternion: jest.fn(() => inst._worldQuat) };
+    const fallbackObj = { getWorldQuaternion: jest.fn(() => inst._worldQuat) };
+    inst._cameraEl = {
+      getObject3D: jest.fn(name => (name === 'camera' ? cameraObj : null)),
+      object3D: fallbackObj,
+    };
+
+    inst._updateZoomCanvas();
+
+    expect(cameraObj.getWorldQuaternion).toHaveBeenCalled();
+    expect(fallbackObj.getWorldQuaternion).not.toHaveBeenCalled();
+  });
 });
 
 /* ─── vr-controller-input: floating window behavior ─────────────────────── */

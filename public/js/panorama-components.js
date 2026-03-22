@@ -239,9 +239,14 @@ AFRAME.registerComponent('loading-overlay', {
 
 /**
  * Handles Quest controller input while in VR:
- *   - Thumbstick left / right → rotate camera rig in discrete steps (stepped turn).
- *   - Thumbstick up / down    → zoom the camera by adjusting its field-of-view.
- *   - X button (left hand)    → exit VR.
+ *   - Left thumbstick left / right → rotate camera rig in discrete steps.
+ *   - Left thumbstick up (held)    → show a magnification frame (4× zoom crop
+ *                                    of the panorama centred on the gaze direction).
+ *                                    Releasing the stick fades the frame out.
+ *   - Right thumbstick left / right→ also rotates (same as left).
+ *   - Y button (left hand)         → request Meta AI facts about the current view;
+ *                                    tap again to dismiss.
+ *   - X button (left hand)         → exit VR.
  *
  * Attach to the #camera-rig entity: <a-entity vr-controller-input …>
  */
@@ -249,135 +254,141 @@ AFRAME.registerComponent('vr-controller-input', {
   schema: {
     turnStep:    { type: 'number', default: 45  },  // degrees per lateral step
     turnCooldown:{ type: 'number', default: 350 },  // ms between turns
-    zoomStep:    { type: 'number', default: 5   },  // FOV degrees per zoom step
-    zoomCooldown:{ type: 'number', default: 200 },  // ms between zoom steps
-    fovMin:      { type: 'number', default: 30  },  // narrowest (most zoomed-in) FOV
-    fovMax:      { type: 'number', default: 120 },  // widest (most zoomed-out) FOV
     deadzone:    { type: 'number', default: 0.5 },  // thumbstick axis threshold
   },
 
   init() {
-    this._lastTurn = 0;
-    this._lastZoom = 0;
+    this._lastTurn    = 0;
+    this._zoomActive  = false;
+    this._factsActive = false;
 
-    // Read the camera's initial FOV and keep it in component state so we
-    // always increment/decrement from a known value, and can compute the
-    // scale needed for the VR projection-matrix zoom hook.
-    const camEl = this.el.querySelector('[camera]');
-    const camData = camEl && camEl.getAttribute('camera');
-    this._fov     = (camData && camData.fov) || 90;
-    this._baseFov = this._fov;
+    this._panoramaCanvas = document.getElementById('panorama-canvas');
 
-    // Flag reset each tick; used by the VR zoom hook to apply once per frame.
-    this._vrZoomApplied = false;
+    // Off-screen canvas painted with a zoomed crop of the panorama.
+    this._zoomCanvas        = document.createElement('canvas');
+    this._zoomCanvas.width  = 512;
+    this._zoomCanvas.height = 512;
+    this._zoomTexture       = null;
 
     this._onThumbstick = this._onThumbstick.bind(this);
     this._onXButton    = this._onXButton.bind(this);
-    this._onWheel      = this._onWheel.bind(this);
+    this._onYButton    = this._onYButton.bind(this);
 
     this._leftHand  = document.getElementById('left-hand');
     this._rightHand = document.getElementById('right-hand');
-    this._skyEl     = document.getElementById('panorama-sky');
 
     if (this._leftHand) {
       this._leftHand.addEventListener('thumbstickmoved', this._onThumbstick);
-      this._leftHand.addEventListener('xbuttondown', this._onXButton);
+      this._leftHand.addEventListener('xbuttondown',    this._onXButton);
+      this._leftHand.addEventListener('ybuttondown',    this._onYButton);
     }
     if (this._rightHand) {
       this._rightHand.addEventListener('thumbstickmoved', this._onThumbstick);
     }
 
-    this.el.sceneEl.addEventListener('wheel', this._onWheel, { passive: true });
-
-    // Hook into the sky sphere's per-object render callback so we can apply
-    // zoom AFTER WebXR has written its projection matrices each frame (which
-    // happens inside THREE.WebGLRenderer.render, before any onBeforeRender
-    // callbacks fire for individual objects).
-    this._setupVRZoomHook();
+    this._setupZoomFrame();
+    this._setupFactsFrame();
   },
 
   /**
-   * Attach an onBeforeRender callback to the sky sphere mesh.
-   * In WebXR mode Three.js renders each eye separately, passing the per-eye
-   * sub-camera to onBeforeRender (NOT the ArrayCamera).  We detect VR mode via
-   * renderer.xr.isPresenting and retrieve the XR ArrayCamera (which contains
-   * both eye cameras) from renderer.xr.getCamera().  We then scale m00 and m11
-   * of each eye's projection matrix to simulate zoom without touching the FOV
-   * that WebXR controls.  In flat mode we rely on the standard
-   * setAttribute('camera','fov') path instead.
+   * Create a square floating frame that displays a 4× magnified crop of the
+   * panorama canvas centred on the camera's look direction.  The frame is
+   * parented to the camera entity so it follows head movement naturally.
    */
-  _setupVRZoomHook() {
-    const self = this;
+  _setupZoomFrame() {
+    const camera = this.el.querySelector('[camera]');
+    if (!camera) return;
 
-    this._vrZoomHook = function vrZoomHook(renderer, scene, camera) {
-      // In WebXR, onBeforeRender receives the per-eye sub-camera (not the
-      // ArrayCamera), so camera.isArrayCamera is always false in VR mode.
-      // Use renderer.xr.isPresenting to detect an active XR session instead.
-      if (!renderer.xr || !renderer.xr.isPresenting) return;
-      // Apply only once per frame (the hook fires once per eye per visible object).
-      if (self._vrZoomApplied) return;
-      self._vrZoomApplied = true;
+    // Container entity – positioned 0.7 m in front of the camera.
+    this._zoomFrameEl = document.createElement('a-entity');
+    this._zoomFrameEl.setAttribute('position', '0 0 -0.7');
+    this._zoomFrameEl.setAttribute('visible', false);
 
-      const zoomScale = self._baseFov / self._fov;
-      if (Math.abs(zoomScale - 1.0) < 0.0001) return; // no change needed
+    // Thin dark border (slightly larger than the image).
+    const border = document.createElement('a-plane');
+    border.setAttribute('width',    '0.38');
+    border.setAttribute('height',   '0.38');
+    border.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.9; transparent: true');
+    this._zoomFrameEl.appendChild(border);
 
-      // Get the XR ArrayCamera so we can modify both eye sub-cameras.
-      const xrCamera = renderer.xr.getCamera();
-      xrCamera.cameras.forEach(eyeCam => {
-        // projectionMatrix is column-major:
-        //   elements[0] = focal-X (m00), elements[5] = focal-Y (m11)
-        //   elements[8] = frustum asymmetry-X (m02), elements[9] = asymmetry-Y (m12)
-        //
-        // Scale all four terms by the same factor so the zoom is centred on
-        // the user's gaze direction regardless of head orientation.  Scaling
-        // only the focal terms [0]/[5] while leaving the asymmetry terms
-        // [8]/[9] unchanged shifts the NDC-space zoom centre away from the
-        // optical axis as the zoom level changes — causing visible distortion
-        // whenever the user turns their head.  Uniform scaling of all four
-        // terms preserves the ratio m02/m00 (and m12/m11), which keeps the
-        // zoom centre locked to the gaze direction at all head orientations.
-        eyeCam.projectionMatrix.elements[0] *= zoomScale;
-        eyeCam.projectionMatrix.elements[5] *= zoomScale;
-        eyeCam.projectionMatrix.elements[8] *= zoomScale;
-        eyeCam.projectionMatrix.elements[9] *= zoomScale;
-        eyeCam.projectionMatrixInverse
-          .copy(eyeCam.projectionMatrix)
-          .invert();
-      });
+    // Image plane – carries the CanvasTexture.
+    this._zoomPlaneEl = document.createElement('a-plane');
+    this._zoomPlaneEl.setAttribute('width',    '0.35');
+    this._zoomPlaneEl.setAttribute('height',   '0.35');
+    this._zoomPlaneEl.setAttribute('position', '0 0 0.001');
+    this._zoomPlaneEl.setAttribute('material', 'shader: flat; side: front');
+    this._zoomFrameEl.appendChild(this._zoomPlaneEl);
+
+    camera.appendChild(this._zoomFrameEl);
+
+    // Attach the zoom canvas as a Three.js texture once the mesh is ready.
+    const applyZoomTexture = () => {
+      const mesh = this._zoomPlaneEl && this._zoomPlaneEl.getObject3D('mesh');
+      if (!mesh) return;
+      this._zoomTexture = new THREE.CanvasTexture(this._zoomCanvas);
+      mesh.material.map = this._zoomTexture;
+      mesh.material.needsUpdate = true;
     };
 
-    const skyEl = this._skyEl;
-    const applyHook = () => {
-      const mesh = skyEl && skyEl.getObject3D('mesh');
-      if (mesh) mesh.onBeforeRender = this._vrZoomHook;
-    };
-    if (skyEl && skyEl.getObject3D('mesh')) {
-      applyHook();
-    } else if (skyEl) {
-      skyEl.addEventListener('loaded', applyHook, { once: true });
+    if (this._zoomPlaneEl.getObject3D('mesh')) {
+      applyZoomTexture();
+    } else {
+      this._zoomPlaneEl.addEventListener('loaded', applyZoomTexture, { once: true });
     }
   },
 
-  /** Reset the per-frame VR zoom flag before Three.js renders. */
+  /**
+   * Create a floating text panel that shows Meta AI facts about the current
+   * view.  Also parented to the camera entity so it tracks head movement.
+   */
+  _setupFactsFrame() {
+    const camera = this.el.querySelector('[camera]');
+    if (!camera) return;
+
+    this._factsFrameEl = document.createElement('a-entity');
+    this._factsFrameEl.setAttribute('position', '0 -0.05 -0.75');
+    this._factsFrameEl.setAttribute('visible', false);
+
+    const bg = document.createElement('a-plane');
+    bg.setAttribute('width',    '0.65');
+    bg.setAttribute('height',   '0.45');
+    bg.setAttribute('material', 'shader: flat; color: #0d1117; opacity: 0.92; transparent: true');
+    this._factsFrameEl.appendChild(bg);
+
+    this._factsTextEl = document.createElement('a-text');
+    this._factsTextEl.setAttribute('value',      '');
+    this._factsTextEl.setAttribute('align',      'left');
+    this._factsTextEl.setAttribute('color',      '#e8e8e8');
+    this._factsTextEl.setAttribute('position',   '-0.3 0.18 0.002');
+    this._factsTextEl.setAttribute('width',      '0.6');
+    this._factsTextEl.setAttribute('wrap-count', '36');
+    this._factsTextEl.setAttribute('scale',      '0.5 0.5 0.5');
+    this._factsFrameEl.appendChild(this._factsTextEl);
+
+    camera.appendChild(this._factsFrameEl);
+  },
+
+  /** Update zoom canvas every frame while the magnification frame is visible. */
   tick() {
-    this._vrZoomApplied = false;
+    if (this._zoomActive) {
+      this._updateZoomCanvas();
+    }
   },
 
   remove() {
     if (this._leftHand) {
       this._leftHand.removeEventListener('thumbstickmoved', this._onThumbstick);
       this._leftHand.removeEventListener('xbuttondown',    this._onXButton);
+      this._leftHand.removeEventListener('ybuttondown',    this._onYButton);
     }
     if (this._rightHand) {
       this._rightHand.removeEventListener('thumbstickmoved', this._onThumbstick);
     }
-
-    this.el.sceneEl.removeEventListener('wheel', this._onWheel);
-
-    // Remove the VR zoom hook from the sky sphere mesh.
-    const mesh = this._skyEl && this._skyEl.getObject3D('mesh');
-    if (mesh && mesh.onBeforeRender === this._vrZoomHook) {
-      mesh.onBeforeRender = null;
+    if (this._zoomFrameEl && this._zoomFrameEl.parentNode) {
+      this._zoomFrameEl.parentNode.removeChild(this._zoomFrameEl);
+    }
+    if (this._factsFrameEl && this._factsFrameEl.parentNode) {
+      this._factsFrameEl.parentNode.removeChild(this._factsFrameEl);
     }
   },
 
@@ -386,7 +397,7 @@ AFRAME.registerComponent('vr-controller-input', {
     const { x, y } = evt.detail;
     const dz       = this.data.deadzone;
 
-    // ── Left / Right → stepped yaw rotation ─────────────────────────────
+    // ── Left / Right → stepped yaw rotation (both controllers) ───────────
     if (Math.abs(x) >= dz && now - this._lastTurn >= this.data.turnCooldown) {
       const rotation = this.el.getAttribute('rotation');
       // Positive x = thumbstick right → turn right (decrease y-rotation)
@@ -399,56 +410,178 @@ AFRAME.registerComponent('vr-controller-input', {
       this._lastTurn = now;
     }
 
-    // ── Up / Down → zoom ─────────────────────────────────────────────────
-    if (Math.abs(y) >= dz && now - this._lastZoom >= this.data.zoomCooldown) {
-      // Positive y = thumbstick down → zoom out (increase FOV)
-      const newFov = THREE.MathUtils.clamp(
-        this._fov + (y > 0 ? this.data.zoomStep : -this.data.zoomStep),
-        this.data.fovMin,
-        this.data.fovMax
-      );
-      this._fov = newFov;
-
-      // Flat mode: propagate to the A-Frame camera component.
-      const camera = this.el.querySelector('[camera]');
-      if (camera) camera.setAttribute('camera', 'fov', newFov);
-
-      // VR mode: the onBeforeRender hook reads this._fov each frame and
-      // applies the equivalent scale to the WebXR projection matrices.
-
-      this._lastZoom = now;
+    // ── Up → magnification frame (left controller only) ───────────────────
+    if (evt.target === this._leftHand) {
+      if (y < -dz) {
+        if (!this._zoomActive) this._showZoomFrame();
+        this._zoomActive = true;
+      } else if (this._zoomActive) {
+        this._zoomActive = false;
+        this._hideZoomFrame();
+      }
     }
   },
 
-  _onWheel(evt) {
-    // Skip when in an immersive VR session — the headset controls projection.
-    if (this.el.sceneEl && this.el.sceneEl.is('vr-mode')) return;
+  _showZoomFrame() {
+    if (!this._zoomFrameEl) return;
+    this._zoomFrameEl.setAttribute('visible', true);
+    this._zoomFrameEl.setAttribute('animation__show',
+      'property: scale; from: 0.01 0.01 0.01; to: 1 1 1; dur: 200; easing: easeOutBack');
+  },
 
-    const now = Date.now();
-    if (now - this._lastZoom < this.data.zoomCooldown) return;
+  _hideZoomFrame() {
+    if (!this._zoomFrameEl) return;
+    this._zoomFrameEl.setAttribute('animation__hide',
+      'property: scale; from: 1 1 1; to: 0.01 0.01 0.01; dur: 200; easing: easeInBack');
+    const frameEl = this._zoomFrameEl;
+    setTimeout(() => { if (frameEl) frameEl.setAttribute('visible', false); }, 220);
+  },
 
+  /**
+   * Sample a 4× zoomed crop of the equirectangular panorama centred on the
+   * camera's world-space look direction, and paint it onto _zoomCanvas.
+   *
+   * The sky sphere may be rotated (heading offset), so the camera direction
+   * is un-rotated by the sky's Y rotation before the UV lookup.
+   * Horizontal wrapping at the ±180° seam is handled explicitly.
+   */
+  _updateZoomCanvas() {
     const camera = this.el.querySelector('[camera]');
-    if (!camera) return;
+    if (!camera || !this._panoramaCanvas || !this._zoomCanvas) return;
 
-    const cameraData = camera.getAttribute('camera');
-    const currentFov = (cameraData && cameraData.fov) || 90;
-    // Scroll up (negative deltaY) = zoom in (decrease FOV)
-    // Scroll down (positive deltaY) = zoom out (increase FOV)
-    const delta = evt.deltaY > 0 ? this.data.zoomStep : -this.data.zoomStep;
-    const newFov = THREE.MathUtils.clamp(
-      currentFov + delta,
-      this.data.fovMin,
-      this.data.fovMax
-    );
-    camera.setAttribute('camera', 'fov', newFov);
-    this._lastZoom = now;
+    // Camera world-space look direction.
+    const worldDir = new THREE.Vector3(0, 0, -1);
+    worldDir.applyQuaternion(camera.object3D.getWorldQuaternion(new THREE.Quaternion()));
+
+    // Convert sky Y-rotation (degrees) to radians so we can un-rotate.
+    const skyEl  = document.getElementById('panorama-sky');
+    let   skyYRad = 0;
+    if (skyEl) {
+      const skyRot = skyEl.getAttribute('rotation');
+      if (skyRot) skyYRad = (skyRot.y || 0) * Math.PI / 180;
+    }
+
+    // Rotate direction by the inverse of the sky's Y rotation to get the
+    // direction in the equirectangular texture's coordinate frame.
+    const cosA = Math.cos(-skyYRad);
+    const sinA = Math.sin(-skyYRad);
+    const texX = worldDir.x * cosA - worldDir.z * sinA;
+    const texZ = worldDir.x * sinA + worldDir.z * cosA;
+    const texY = worldDir.y;
+
+    // Map to equirectangular UV [0,1]×[0,1].
+    const azimuth   = Math.atan2(texX, -texZ);                       // [-π, π]
+    const elevation = Math.asin(Math.max(-1, Math.min(1, texY)));
+    const u = ((azimuth / (Math.PI * 2)) + 0.5 + 1) % 1;
+    const v = 0.5 - elevation / Math.PI;
+
+    // Crop region: 1/4 of each dimension → 4× effective zoom.
+    const panoW = this._panoramaCanvas.width;
+    const panoH = this._panoramaCanvas.height;
+    const srcW  = panoW / 4;
+    const srcH  = panoH / 4;
+    const srcX  = u * panoW - srcW / 2;
+    // Clamp vertically (no vertical wrap on equirectangular).
+    const srcY  = Math.max(0, Math.min(panoH - srcH, v * panoH - srcH / 2));
+
+    const ctx  = this._zoomCanvas.getContext('2d');
+    const dstW = this._zoomCanvas.width;
+    const dstH = this._zoomCanvas.height;
+    ctx.clearRect(0, 0, dstW, dstH);
+
+    // Handle horizontal wrap at the ±180° seam.
+    if (srcX < 0) {
+      const wW = -srcX;
+      const rW = srcW - wW;
+      ctx.drawImage(this._panoramaCanvas, panoW + srcX, srcY, wW, srcH,
+        0, 0, (wW / srcW) * dstW, dstH);
+      ctx.drawImage(this._panoramaCanvas, 0, srcY, rW, srcH,
+        (wW / srcW) * dstW, 0, (rW / srcW) * dstW, dstH);
+    } else if (srcX + srcW > panoW) {
+      const lW = panoW - srcX;
+      const rW = srcW - lW;
+      ctx.drawImage(this._panoramaCanvas, srcX, srcY, lW, srcH,
+        0, 0, (lW / srcW) * dstW, dstH);
+      ctx.drawImage(this._panoramaCanvas, 0, srcY, rW, srcH,
+        (lW / srcW) * dstW, 0, (rW / srcW) * dstW, dstH);
+    } else {
+      ctx.drawImage(this._panoramaCanvas, srcX, srcY, srcW, srcH,
+        0, 0, dstW, dstH);
+    }
+
+    if (this._zoomTexture) this._zoomTexture.needsUpdate = true;
+  },
+
+  // ── Y button: Meta AI facts window ──────────────────────────────────────
+
+  _onYButton() {
+    if (this._factsActive) {
+      this._hideFactsFrame();
+      return;
+    }
+    this._factsActive = true;
+    this._showFactsFrame('Asking Meta AI…');
+    this._fetchAIFacts();
+  },
+
+  _showFactsFrame(text) {
+    if (!this._factsFrameEl) return;
+    if (text) this._updateFactsText(text);
+    this._factsFrameEl.setAttribute('visible', true);
+    this._factsFrameEl.setAttribute('animation__show',
+      'property: scale; from: 0.01 0.01 0.01; to: 1 1 1; dur: 250; easing: easeOutBack');
+  },
+
+  _hideFactsFrame() {
+    this._factsActive = false;
+    if (!this._factsFrameEl) return;
+    this._factsFrameEl.setAttribute('animation__hide',
+      'property: scale; from: 1 1 1; to: 0.01 0.01 0.01; dur: 200; easing: easeInBack');
+    const frameEl = this._factsFrameEl;
+    setTimeout(() => { if (frameEl) frameEl.setAttribute('visible', false); }, 220);
+  },
+
+  _updateFactsText(text) {
+    if (this._factsTextEl) this._factsTextEl.setAttribute('value', text);
+  },
+
+  /**
+   * Capture a JPEG snapshot of the zoomed view (what the user is looking at),
+   * POST it to /api/ai-facts, and display the returned facts in the panel.
+   */
+  _fetchAIFacts() {
+    // Render the zoom canvas once to get the current view snapshot.
+    this._updateZoomCanvas();
+    const snapshot = this._zoomCanvas.toDataURL('image/jpeg', 0.85);
+
+    const locTextEl   = document.getElementById('location-text');
+    const description = locTextEl ? (locTextEl.getAttribute('value') || '') : '';
+
+    fetch('/api/ai-facts', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ image: snapshot, description }),
+    }).then((res) => {
+      if (!res.ok) {
+        return res.json().catch(() => ({})).then((err) => {
+          if (this._factsActive) {
+            this._updateFactsText(err.error || 'Could not get facts. Try again.');
+          }
+        });
+      }
+      return res.json().then((data) => {
+        if (this._factsActive) {
+          this._updateFactsText(data.facts || 'No facts available.');
+        }
+      });
+    }).catch(() => {
+      if (this._factsActive) this._updateFactsText('Network error. Check connection.');
+    });
   },
 
   _onXButton() {
     const scene = this.el.sceneEl;
-    if (scene && scene.is('vr-mode')) {
-      scene.exitVR();
-    }
+    if (scene && scene.is('vr-mode')) scene.exitVR();
   },
 });
 

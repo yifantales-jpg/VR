@@ -33,8 +33,18 @@
  *        Google's image hosting (lh3.googleusercontent.com). Only Google
  *        image hosting URLs are accepted to prevent open-proxy abuse.
  *
+ *   POST /api/ai-facts
+ *        Accept a base64 JPEG snapshot of the current view and an optional
+ *        location description; query the Meta AI (Llama API) for amazing
+ *        facts about the scene and return them as text.
+ *        Requires META_AI_API_KEY environment variable.
+ *
  *   GET  /health
  *        Health-check (returns 200 OK).
+ *
+ * Additional environment variables:
+ *   META_AI_API_KEY – API key for the Llama API (https://api.llama.com).
+ *                     Required for the /api/ai-facts endpoint.
  */
 
 'use strict';
@@ -354,6 +364,79 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
   } catch (err) {
     console.error('[resolve proxy]', err.message);
     res.status(502).json({ error: 'Failed to resolve URL.' });
+  }
+});
+
+/* ─── Meta AI facts endpoint ─────────────────────────────────────────────── */
+
+/**
+ * POST /api/ai-facts
+ *
+ * Accepts a base64-encoded JPEG snapshot of the current panorama view (as a
+ * data URL) and an optional location description.  Forwards the image to the
+ * Meta AI Llama API and returns a short list of amazing facts about the scene.
+ *
+ * Requires the META_AI_API_KEY environment variable (Llama API key).
+ *
+ * Request body (JSON, max 4 MB):
+ *   { image: "data:image/jpeg;base64,…", description: "Location name" }
+ *
+ * Response (JSON):
+ *   { facts: "…interesting facts…" }
+ */
+app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req, res) => {
+  const apiKey = process.env.META_AI_API_KEY;
+  if (!apiKey) {
+    return res.status(503).json({ error: 'AI service not configured (META_AI_API_KEY not set).' });
+  }
+
+  const { image, description } = req.body || {};
+  if (!image || typeof image !== 'string' || !image.startsWith('data:image/')) {
+    return res.status(400).json({ error: 'image field required (base64 data URL).' });
+  }
+
+  const locationHint = description ? ` at "${description}"` : '';
+  const prompt = `This is a Street View panorama${locationHint}. Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.`;
+
+  try {
+    const upstream = await fetch('https://api.llama.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'Llama-4-Scout-17B-16E-Instruct',
+        messages: [
+          {
+            role:    'user',
+            content: [
+              { type: 'image_url', image_url: { url: image } },
+              { type: 'text',      text: prompt },
+            ],
+          },
+        ],
+        max_completion_tokens: 400,
+      }),
+      timeout: 30000,
+    });
+
+    if (!upstream.ok) {
+      const body = await upstream.text();
+      console.error('[ai-facts] upstream error:', upstream.status, body);
+      return res.status(502).json({ error: 'AI service returned an error.' });
+    }
+
+    const data  = await upstream.json();
+    const facts = (data.choices &&
+                   data.choices[0] &&
+                   data.choices[0].message &&
+                   data.choices[0].message.content) || '';
+    res.json({ facts });
+
+  } catch (err) {
+    console.error('[ai-facts]', err.message);
+    res.status(502).json({ error: 'Failed to get AI response.' });
   }
 });
 

@@ -328,14 +328,18 @@ AFRAME.registerComponent('vr-controller-input', {
         //   elements[0] = focal-X (m00), elements[5] = focal-Y (m11)
         //   elements[8] = frustum asymmetry-X (m02), elements[9] = asymmetry-Y (m12)
         //
-        // Only scale the focal terms [0] and [5].  The asymmetry terms [8]/[9]
-        // encode the per-eye optical-centre offset (IPD + lens shift); scaling
-        // them shifts each eye's gaze direction in NDC space — in opposite
-        // directions for left vs. right — which breaks stereo fusion and causes
-        // the double-image artefact.  Leaving [8]/[9] unchanged keeps the zoom
-        // correctly centred on the user's current gaze direction for both eyes.
+        // Scale all four terms by the same factor so the zoom is centred on
+        // the user's gaze direction regardless of head orientation.  Scaling
+        // only the focal terms [0]/[5] while leaving the asymmetry terms
+        // [8]/[9] unchanged shifts the NDC-space zoom centre away from the
+        // optical axis as the zoom level changes — causing visible distortion
+        // whenever the user turns their head.  Uniform scaling of all four
+        // terms preserves the ratio m02/m00 (and m12/m11), which keeps the
+        // zoom centre locked to the gaze direction at all head orientations.
         eyeCam.projectionMatrix.elements[0] *= zoomScale;
         eyeCam.projectionMatrix.elements[5] *= zoomScale;
+        eyeCam.projectionMatrix.elements[8] *= zoomScale;
+        eyeCam.projectionMatrix.elements[9] *= zoomScale;
         eyeCam.projectionMatrixInverse
           .copy(eyeCam.projectionMatrix)
           .invert();

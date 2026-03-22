@@ -334,3 +334,182 @@ describe('street-view-scene panorama texture settings', () => {
     expect(createdTextures[0].anisotropy).toBe(16);
   });
 });
+
+/* ─── vr-controller-input: VR zoom hook ─────────────────────────────────── */
+
+describe('vr-controller-input VR zoom hook', () => {
+  /**
+   * Build a minimal vr-controller-input instance wired to a mock sky mesh.
+   * Returns the instance and a helper to invoke the vrZoomHook directly.
+   */
+  function buildVRZoomInstance({ baseFov = 90, currentFov = 90 } = {}) {
+    // Build a mock projection matrix with asymmetry terms (simulating a
+    // real WebXR left-eye camera: m02 > 0, m12 ≈ 0).
+    function makeProjectionMatrix(m00, m11, m02, m12) {
+      // column-major Float32Array layout used by Three.js Matrix4:
+      // [m00, 0, 0, 0,  0, m11, 0, 0,  m02, m12, m22, -1,  0, 0, m23, 0]
+      // indices: 0   1  2  3    4   5   6   7    8    9   10  11  12  13  14  15
+      const el = new Float32Array(16);
+      el[0]  = m00;
+      el[5]  = m11;
+      el[8]  = m02;
+      el[9]  = m12;
+      el[10] = -1;   // m22 (typical near/far packed value, not important here)
+      el[11] = -1;   // perspective divide row
+      el[14] = -0.1; // m23 (near plane, not tested here)
+      return { elements: el };
+    }
+
+    // Two eye cameras with opposite asymmetry signs (left/right eye IPD offset).
+    const leftEye = {
+      projectionMatrix: makeProjectionMatrix(1.5, 1.5, 0.15, 0.0),
+      projectionMatrixInverse: { copy: jest.fn().mockReturnThis(), invert: jest.fn() },
+    };
+    const rightEye = {
+      projectionMatrix: makeProjectionMatrix(1.5, 1.5, -0.15, 0.0),
+      projectionMatrixInverse: { copy: jest.fn().mockReturnThis(), invert: jest.fn() },
+    };
+
+    const xrCamera = { cameras: [leftEye, rightEye] };
+    const mockRenderer = {
+      xr: {
+        isPresenting: true,
+        getCamera: jest.fn(() => xrCamera),
+      },
+    };
+
+    const mesh = { onBeforeRender: null };
+    const skyEl = {
+      getObject3D: jest.fn(() => mesh),
+      addEventListener: jest.fn(),
+    };
+
+    // Mock document.getElementById used by init().
+    const origGetElementById = global.document && global.document.getElementById;
+    if (!global.document) global.document = {};
+    global.document.getElementById = jest.fn((id) => {
+      if (id === 'panorama-sky') return skyEl;
+      return null;
+    });
+
+    const sceneEl = { addEventListener: jest.fn(), is: jest.fn(() => false) };
+    const el = {
+      sceneEl,
+      querySelector: jest.fn(() => ({
+        getAttribute: jest.fn(() => ({ fov: baseFov })),
+        setAttribute: jest.fn(),
+      })),
+      getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
+      setAttribute: jest.fn(),
+    };
+
+    const comp = registeredComponents['vr-controller-input'];
+    const instance = Object.create(comp.Component.prototype);
+    instance.el   = el;
+    instance.data = {
+      turnStep: 45, turnCooldown: 350,
+      zoomStep: 5,  zoomCooldown: 200,
+      fovMin: 30,   fovMax: 120,
+      deadzone: 0.5,
+    };
+    instance.init();
+
+    // Override current FOV to simulate a zoomed state.
+    instance._fov = currentFov;
+
+    // Retrieve the installed hook and the mock mesh so callers can invoke it.
+    return {
+      instance,
+      leftEye,
+      rightEye,
+      mockRenderer,
+      mesh,
+      invokeHook() {
+        instance._vrZoomApplied = false; // reset per-frame flag
+        mesh.onBeforeRender(mockRenderer, {}, {});
+      },
+      restore() {
+        if (origGetElementById !== undefined) {
+          global.document.getElementById = origGetElementById;
+        }
+      },
+    };
+  }
+
+  test('zoom hook scales focal terms (elements[0] and [5]) by zoomScale', () => {
+    const { leftEye, invokeHook, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 45 });
+    try {
+      const origM00 = leftEye.projectionMatrix.elements[0];
+      const origM11 = leftEye.projectionMatrix.elements[5];
+      invokeHook();
+      const expectedScale = 90 / 45; // zoomScale = baseFov / currentFov = 2
+      expect(leftEye.projectionMatrix.elements[0]).toBeCloseTo(origM00 * expectedScale, 5);
+      expect(leftEye.projectionMatrix.elements[5]).toBeCloseTo(origM11 * expectedScale, 5);
+    } finally {
+      restore();
+    }
+  });
+
+  test('zoom hook scales asymmetry terms (elements[8] and [9]) by the same zoomScale', () => {
+    // This is the critical fix: asymmetry terms must be scaled to prevent
+    // gaze-direction drift and head-turn distortion.
+    const { leftEye, rightEye, invokeHook, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 45 });
+    try {
+      const origLeftM02  = leftEye.projectionMatrix.elements[8];
+      const origLeftM12  = leftEye.projectionMatrix.elements[9];
+      const origRightM02 = rightEye.projectionMatrix.elements[8];
+      const origRightM12 = rightEye.projectionMatrix.elements[9];
+      invokeHook();
+      const expectedScale = 90 / 45; // 2×
+      expect(leftEye.projectionMatrix.elements[8]).toBeCloseTo(origLeftM02  * expectedScale, 5);
+      expect(leftEye.projectionMatrix.elements[9]).toBeCloseTo(origLeftM12  * expectedScale, 5);
+      expect(rightEye.projectionMatrix.elements[8]).toBeCloseTo(origRightM02 * expectedScale, 5);
+      expect(rightEye.projectionMatrix.elements[9]).toBeCloseTo(origRightM12 * expectedScale, 5);
+    } finally {
+      restore();
+    }
+  });
+
+  test('zoom preserves the m02/m00 ratio (zoom centre stays on gaze axis)', () => {
+    // The zoom centre in NDC is at -m02 (for x).  After scaling both m00 and
+    // m02 by the same factor, the camera-space direction of the zoom centre
+    // (-m02 / m00) is unchanged, so head turning does not distort the view.
+    const { leftEye, invokeHook, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 60 });
+    try {
+      const origRatio = leftEye.projectionMatrix.elements[8] / leftEye.projectionMatrix.elements[0];
+      invokeHook();
+      const newRatio  = leftEye.projectionMatrix.elements[8] / leftEye.projectionMatrix.elements[0];
+      expect(newRatio).toBeCloseTo(origRatio, 5);
+    } finally {
+      restore();
+    }
+  });
+
+  test('zoom hook is a no-op when FOV equals baseFov (zoomScale ≈ 1)', () => {
+    const { leftEye, invokeHook, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 90 });
+    try {
+      const origM00 = leftEye.projectionMatrix.elements[0];
+      const origM02 = leftEye.projectionMatrix.elements[8];
+      invokeHook();
+      expect(leftEye.projectionMatrix.elements[0]).toBeCloseTo(origM00, 5);
+      expect(leftEye.projectionMatrix.elements[8]).toBeCloseTo(origM02, 5);
+    } finally {
+      restore();
+    }
+  });
+
+  test('zoom hook fires only once per frame even though onBeforeRender is called per eye', () => {
+    const { mockRenderer, mesh, instance, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 45 });
+    try {
+      instance._vrZoomApplied = false;
+      const getCamera = mockRenderer.xr.getCamera;
+      // Simulate two calls (one per eye) without resetting the flag in between.
+      mesh.onBeforeRender(mockRenderer, {}, {});
+      mesh.onBeforeRender(mockRenderer, {}, {});
+      // getCamera should have been called exactly once (second call bailed early).
+      expect(getCamera).toHaveBeenCalledTimes(1);
+    } finally {
+      restore();
+    }
+  });
+});

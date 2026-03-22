@@ -178,6 +178,78 @@ describe('GET /api/resolve', () => {
   });
 });
 
+describe('POST /api/ai-facts', () => {
+  const savedKey = process.env.META_AI_API_KEY;
+
+  afterEach(() => {
+    // Restore the env var after each test.
+    if (savedKey === undefined) {
+      delete process.env.META_AI_API_KEY;
+    } else {
+      process.env.META_AI_API_KEY = savedKey;
+    }
+  });
+
+  it('returns 503 when META_AI_API_KEY is not set', async () => {
+    delete process.env.META_AI_API_KEY;
+    const res = await request(app)
+      .post('/api/ai-facts')
+      .send({ image: 'data:image/jpeg;base64,abc123', description: 'Paris' });
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatch(/META_AI_API_KEY/);
+  });
+
+  it('returns 400 when image field is missing', async () => {
+    process.env.META_AI_API_KEY = 'test-key';
+    const res = await request(app)
+      .post('/api/ai-facts')
+      .send({ description: 'Paris' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/image field required/);
+  });
+
+  it('returns 400 when image is not a data URL', async () => {
+    process.env.META_AI_API_KEY = 'test-key';
+    const res = await request(app)
+      .post('/api/ai-facts')
+      .send({ image: 'https://example.com/photo.jpg' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/image field required/);
+  });
+
+  it('returns 400 when image field is not a string', async () => {
+    process.env.META_AI_API_KEY = 'test-key';
+    const res = await request(app)
+      .post('/api/ai-facts')
+      .send({ image: 42 });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/image field required/);
+  });
+
+  it('returns 400 when request body is empty', async () => {
+    process.env.META_AI_API_KEY = 'test-key';
+    const res = await request(app)
+      .post('/api/ai-facts')
+      .set('Content-Type', 'application/json')
+      .send('{}');
+    expect(res.status).toBe(400);
+  });
+
+  it('attempts upstream call when API key and valid image are provided (network may fail)', async () => {
+    process.env.META_AI_API_KEY = 'test-key';
+    // A minimal valid data URL so validation passes.
+    const image = 'data:image/jpeg;base64,' + Buffer.alloc(16).toString('base64');
+    const res = await request(app)
+      .post('/api/ai-facts')
+      .send({ image, description: 'Eiffel Tower' });
+    // In a test environment with no real Llama API access the upstream call
+    // will fail; we only verify it passed the server-side validation stage
+    // (i.e., NOT a 400 or 503 which would indicate our input validation failed).
+    expect(res.status).not.toBe(400);
+    expect(res.status).not.toBe(503);
+  });
+});
+
 describe('Static file serving', () => {
   it('serves index.html at root', async () => {
     const res = await request(app).get('/');

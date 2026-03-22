@@ -335,181 +335,145 @@ describe('street-view-scene panorama texture settings', () => {
   });
 });
 
-/* ─── vr-controller-input: VR zoom hook ─────────────────────────────────── */
+/* ─── vr-controller-input: floating window behavior ─────────────────────── */
 
-describe('vr-controller-input VR zoom hook', () => {
+describe('vr-controller-input floating windows', () => {
   /**
-   * Build a minimal vr-controller-input instance wired to a mock sky mesh.
-   * Returns the instance and a helper to invoke the vrZoomHook directly.
+   * Build a bare-minimum instance with the key state fields pre-set so each
+   * test can call individual methods without going through init() (which
+   * touches the DOM heavily).
    */
-  function buildVRZoomInstance({ baseFov = 90, currentFov = 90 } = {}) {
-    // Build a mock projection matrix with asymmetry terms (simulating a
-    // real WebXR left-eye camera: m02 > 0, m12 ≈ 0).
-    function makeProjectionMatrix(m00, m11, m02, m12) {
-      // column-major Float32Array layout used by Three.js Matrix4:
-      // [m00, 0, 0, 0,  0, m11, 0, 0,  m02, m12, m22, -1,  0, 0, m23, 0]
-      // indices: 0   1  2  3    4   5   6   7    8    9   10  11  12  13  14  15
-      const el = new Float32Array(16);
-      el[0]  = m00;
-      el[5]  = m11;
-      el[8]  = m02;
-      el[9]  = m12;
-      el[10] = -1;   // m22 (typical near/far packed value, not important here)
-      el[11] = -1;   // perspective divide row
-      el[14] = -0.1; // m23 (near plane, not tested here)
-      return { elements: el };
-    }
+  function buildInstance() {
+    const comp = registeredComponents['vr-controller-input'];
+    const instance = Object.create(comp.Component.prototype);
+    instance.data = { turnStep: 45, turnCooldown: 350, deadzone: 0.5 };
+    instance._lastTurn    = 0;
+    instance._zoomActive  = false;
+    instance._factsActive = false;
+    // Use plain objects as hand references so identity checks work.
+    instance._leftHand  = { _id: 'left-hand' };
+    instance._rightHand = { _id: 'right-hand' };
+    return instance;
+  }
 
-    // Two eye cameras with opposite asymmetry signs (left/right eye IPD offset).
-    const leftEye = {
-      projectionMatrix: makeProjectionMatrix(1.5, 1.5, 0.15, 0.0),
-      projectionMatrixInverse: { copy: jest.fn().mockReturnThis(), invert: jest.fn() },
-    };
-    const rightEye = {
-      projectionMatrix: makeProjectionMatrix(1.5, 1.5, -0.15, 0.0),
-      projectionMatrixInverse: { copy: jest.fn().mockReturnThis(), invert: jest.fn() },
-    };
+  // ── Y button ─────────────────────────────────────────────────────────────
 
-    const xrCamera = { cameras: [leftEye, rightEye] };
-    const mockRenderer = {
-      xr: {
-        isPresenting: true,
-        getCamera: jest.fn(() => xrCamera),
-      },
-    };
+  test('_onYButton: first press sets _factsActive and calls _showFactsFrame', () => {
+    const inst = buildInstance();
+    inst._showFactsFrame = jest.fn();
+    inst._fetchAIFacts   = jest.fn();
 
-    const mesh = { onBeforeRender: null };
-    const skyEl = {
-      getObject3D: jest.fn(() => mesh),
-      addEventListener: jest.fn(),
-    };
+    inst._onYButton();
 
-    // Mock document.getElementById used by init().
-    const origGetElementById = global.document && global.document.getElementById;
-    if (!global.document) global.document = {};
-    global.document.getElementById = jest.fn((id) => {
-      if (id === 'panorama-sky') return skyEl;
-      return null;
-    });
+    expect(inst._factsActive).toBe(true);
+    expect(inst._showFactsFrame).toHaveBeenCalledWith('Asking Meta AI…');
+    expect(inst._fetchAIFacts).toHaveBeenCalled();
+  });
 
-    const sceneEl = { addEventListener: jest.fn(), is: jest.fn(() => false) };
-    const el = {
-      sceneEl,
-      querySelector: jest.fn(() => ({
-        getAttribute: jest.fn(() => ({ fov: baseFov })),
-        setAttribute: jest.fn(),
-      })),
+  test('_onYButton: second press calls _hideFactsFrame and clears _factsActive', () => {
+    const inst = buildInstance();
+    inst._factsActive    = true;
+    inst._hideFactsFrame = jest.fn();
+
+    inst._onYButton();
+
+    expect(inst._hideFactsFrame).toHaveBeenCalled();
+  });
+
+  test('_hideFactsFrame sets _factsActive false', () => {
+    const inst = buildInstance();
+    inst._factsActive  = true;
+    inst._factsFrameEl = null; // no DOM element needed for this assertion
+
+    inst._hideFactsFrame();
+
+    expect(inst._factsActive).toBe(false);
+  });
+
+  // ── Thumbstick up → magnification frame ──────────────────────────────────
+
+  test('_onThumbstick: left stick up shows zoom frame when not already active', () => {
+    const inst = buildInstance();
+    inst._showZoomFrame = jest.fn();
+    inst._hideZoomFrame = jest.fn();
+
+    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
+
+    expect(inst._showZoomFrame).toHaveBeenCalledTimes(1);
+    expect(inst._zoomActive).toBe(true);
+  });
+
+  test('_onThumbstick: left stick up while already active does not call _showZoomFrame again', () => {
+    const inst = buildInstance();
+    inst._zoomActive    = true;
+    inst._showZoomFrame = jest.fn();
+    inst._hideZoomFrame = jest.fn();
+
+    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
+
+    expect(inst._showZoomFrame).not.toHaveBeenCalled();
+  });
+
+  test('_onThumbstick: releasing left stick (y in deadzone) hides zoom frame', () => {
+    const inst = buildInstance();
+    inst._zoomActive    = true;
+    inst._showZoomFrame = jest.fn();
+    inst._hideZoomFrame = jest.fn();
+
+    inst._onThumbstick({ detail: { x: 0, y: 0 }, target: inst._leftHand });
+
+    expect(inst._hideZoomFrame).toHaveBeenCalled();
+    expect(inst._zoomActive).toBe(false);
+  });
+
+  test('_onThumbstick: right stick up does NOT trigger zoom frame', () => {
+    const inst = buildInstance();
+    inst._showZoomFrame = jest.fn();
+
+    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._rightHand });
+
+    expect(inst._showZoomFrame).not.toHaveBeenCalled();
+    expect(inst._zoomActive).toBe(false);
+  });
+
+  // ── Stepped rotation still works on both controllers ─────────────────────
+
+  test('_onThumbstick: left stick right triggers rotation step', () => {
+    const inst = buildInstance();
+    inst.el = {
       getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
       setAttribute: jest.fn(),
     };
 
-    const comp = registeredComponents['vr-controller-input'];
-    const instance = Object.create(comp.Component.prototype);
-    instance.el   = el;
-    instance.data = {
-      turnStep: 45, turnCooldown: 350,
-      zoomStep: 5,  zoomCooldown: 200,
-      fovMin: 30,   fovMax: 120,
-      deadzone: 0.5,
+    inst._onThumbstick({ detail: { x: 0.9, y: 0 }, target: inst._leftHand });
+
+    expect(inst.el.setAttribute).toHaveBeenCalledWith('rotation',
+      expect.objectContaining({ y: -45 }));
+  });
+
+  test('_onThumbstick: right stick right triggers rotation step', () => {
+    const inst = buildInstance();
+    inst.el = {
+      getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
+      setAttribute: jest.fn(),
     };
-    instance.init();
 
-    // Override current FOV to simulate a zoomed state.
-    instance._fov = currentFov;
+    inst._onThumbstick({ detail: { x: 0.9, y: 0 }, target: inst._rightHand });
 
-    // Retrieve the installed hook and the mock mesh so callers can invoke it.
-    return {
-      instance,
-      leftEye,
-      rightEye,
-      mockRenderer,
-      mesh,
-      invokeHook() {
-        instance._vrZoomApplied = false; // reset per-frame flag
-        mesh.onBeforeRender(mockRenderer, {}, {});
-      },
-      restore() {
-        if (origGetElementById !== undefined) {
-          global.document.getElementById = origGetElementById;
-        }
-      },
+    expect(inst.el.setAttribute).toHaveBeenCalledWith('rotation',
+      expect.objectContaining({ y: -45 }));
+  });
+
+  test('_onThumbstick: rotation step is skipped when cooldown has not elapsed', () => {
+    const inst = buildInstance();
+    inst.el = {
+      getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
+      setAttribute: jest.fn(),
     };
-  }
+    inst._lastTurn = Date.now(); // cooldown just triggered
 
-  test('zoom hook scales focal terms (elements[0] and [5]) by zoomScale', () => {
-    const { leftEye, invokeHook, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 45 });
-    try {
-      const origM00 = leftEye.projectionMatrix.elements[0];
-      const origM11 = leftEye.projectionMatrix.elements[5];
-      invokeHook();
-      const expectedScale = 90 / 45; // zoomScale = baseFov / currentFov = 2
-      expect(leftEye.projectionMatrix.elements[0]).toBeCloseTo(origM00 * expectedScale, 5);
-      expect(leftEye.projectionMatrix.elements[5]).toBeCloseTo(origM11 * expectedScale, 5);
-    } finally {
-      restore();
-    }
-  });
+    inst._onThumbstick({ detail: { x: 0.9, y: 0 }, target: inst._leftHand });
 
-  test('zoom hook scales asymmetry terms (elements[8] and [9]) by the same zoomScale', () => {
-    // This is the critical fix: asymmetry terms must be scaled to prevent
-    // gaze-direction drift and head-turn distortion.
-    const { leftEye, rightEye, invokeHook, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 45 });
-    try {
-      const origLeftM02  = leftEye.projectionMatrix.elements[8];
-      const origLeftM12  = leftEye.projectionMatrix.elements[9];
-      const origRightM02 = rightEye.projectionMatrix.elements[8];
-      const origRightM12 = rightEye.projectionMatrix.elements[9];
-      invokeHook();
-      const expectedScale = 90 / 45; // 2×
-      expect(leftEye.projectionMatrix.elements[8]).toBeCloseTo(origLeftM02  * expectedScale, 5);
-      expect(leftEye.projectionMatrix.elements[9]).toBeCloseTo(origLeftM12  * expectedScale, 5);
-      expect(rightEye.projectionMatrix.elements[8]).toBeCloseTo(origRightM02 * expectedScale, 5);
-      expect(rightEye.projectionMatrix.elements[9]).toBeCloseTo(origRightM12 * expectedScale, 5);
-    } finally {
-      restore();
-    }
-  });
-
-  test('zoom preserves the m02/m00 ratio (zoom centre stays on gaze axis)', () => {
-    // The zoom centre in NDC is at -m02 (for x).  After scaling both m00 and
-    // m02 by the same factor, the camera-space direction of the zoom centre
-    // (-m02 / m00) is unchanged, so head turning does not distort the view.
-    const { leftEye, invokeHook, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 60 });
-    try {
-      const origRatio = leftEye.projectionMatrix.elements[8] / leftEye.projectionMatrix.elements[0];
-      invokeHook();
-      const newRatio  = leftEye.projectionMatrix.elements[8] / leftEye.projectionMatrix.elements[0];
-      expect(newRatio).toBeCloseTo(origRatio, 5);
-    } finally {
-      restore();
-    }
-  });
-
-  test('zoom hook is a no-op when FOV equals baseFov (zoomScale ≈ 1)', () => {
-    const { leftEye, invokeHook, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 90 });
-    try {
-      const origM00 = leftEye.projectionMatrix.elements[0];
-      const origM02 = leftEye.projectionMatrix.elements[8];
-      invokeHook();
-      expect(leftEye.projectionMatrix.elements[0]).toBeCloseTo(origM00, 5);
-      expect(leftEye.projectionMatrix.elements[8]).toBeCloseTo(origM02, 5);
-    } finally {
-      restore();
-    }
-  });
-
-  test('zoom hook fires only once per frame even though onBeforeRender is called per eye', () => {
-    const { mockRenderer, mesh, instance, restore } = buildVRZoomInstance({ baseFov: 90, currentFov: 45 });
-    try {
-      instance._vrZoomApplied = false;
-      const getCamera = mockRenderer.xr.getCamera;
-      // Simulate two calls (one per eye) without resetting the flag in between.
-      mesh.onBeforeRender(mockRenderer, {}, {});
-      mesh.onBeforeRender(mockRenderer, {}, {});
-      // getCamera should have been called exactly once (second call bailed early).
-      expect(getCamera).toHaveBeenCalledTimes(1);
-    } finally {
-      restore();
-    }
+    expect(inst.el.setAttribute).not.toHaveBeenCalled();
   });
 });

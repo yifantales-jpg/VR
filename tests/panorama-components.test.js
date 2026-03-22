@@ -335,6 +335,90 @@ describe('street-view-scene panorama texture settings', () => {
   });
 });
 
+/* ─── vr-controller-input: _updateZoomCanvas UV mapping ─────────────────── */
+
+describe('_updateZoomCanvas UV mapping', () => {
+  /**
+   * Build a minimal instance wired for UV-mapping tests.
+   * worldDir is the desired camera look direction in world space.
+   * skyYDeg is the sky sphere's Y rotation in degrees.
+   */
+  function buildZoomInstance(skyYDeg, worldDir) {
+    const comp = registeredComponents['vr-controller-input'];
+    const inst = Object.create(comp.Component.prototype);
+
+    const panoCanvas = { width: 4096, height: 2048 };
+    const drawCalls  = [];
+    const zoomCtx    = {
+      clearRect: jest.fn(),
+      drawImage: jest.fn((...args) => drawCalls.push(args)),
+    };
+    const zoomCanvas = {
+      width: 512, height: 512,
+      getContext: () => zoomCtx,
+    };
+
+    // Mock _worldDir: set() initialises it, applyQuaternion() delivers worldDir.
+    inst._worldDir = {
+      x: 0, y: 0, z: -1,
+      set(x, y, z) { this.x = x; this.y = y; this.z = z; },
+      applyQuaternion() {
+        this.x = worldDir.x; this.y = worldDir.y; this.z = worldDir.z;
+        return this;
+      },
+    };
+    inst._worldQuat = {};
+    inst._cameraEl  = { object3D: { getWorldQuaternion: () => inst._worldQuat } };
+    inst._skyEl     = { getAttribute: () => ({ y: skyYDeg }) };
+    inst._panoramaCanvas = panoCanvas;
+    inst._zoomCanvas     = zoomCanvas;
+    inst._zoomTexture    = null;
+
+    return { inst, drawCalls, zoomCtx };
+  }
+
+  // Side length of the crop square (panoW/16).
+  const SIDE = Math.floor(4096 / 16); // 256
+
+  test('looking forward with sky rotation y=-90° crops at u=0 (north)', () => {
+    // u=0 → srcX = 0*4096 - 256/2 = -128 → wraps: draws from panoW-128=3968
+    const { inst, drawCalls } = buildZoomInstance(-90, { x: 0, y: 0, z: -1 });
+    inst._updateZoomCanvas();
+
+    expect(drawCalls.length).toBe(2); // horizontal seam wrap
+    // First call: the wrapped left slice starting at panoW + srcX
+    expect(drawCalls[0][1]).toBeCloseTo(4096 - SIDE / 2, 0);
+  });
+
+  test('looking backward with sky rotation y=-90° crops at u=0.5 (south)', () => {
+    // u=0.5 → srcX = 0.5*4096 - 128 = 2048-128 = 1920 → no wrap
+    const { inst, drawCalls } = buildZoomInstance(-90, { x: 0, y: 0, z: 1 });
+    inst._updateZoomCanvas();
+
+    expect(drawCalls.length).toBe(1);
+    expect(drawCalls[0][1]).toBeCloseTo(0.5 * 4096 - SIDE / 2, 0);
+  });
+
+  test('looking forward with no sky rotation crops at u=0.75', () => {
+    // skyYRad=0, forward -Z → sky local -Z → phi=3π/2 → u=0.75
+    // srcX = 0.75*4096 - 128 = 3072-128 = 2944 → no wrap (2944+256=3200 < 4096)
+    const { inst, drawCalls } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
+    inst._updateZoomCanvas();
+
+    expect(drawCalls.length).toBe(1);
+    expect(drawCalls[0][1]).toBeCloseTo(0.75 * 4096 - SIDE / 2, 0);
+  });
+
+  test('returns early when panorama canvas is absent', () => {
+    const { inst, zoomCtx } = buildZoomInstance(-90, { x: 0, y: 0, z: -1 });
+    inst._panoramaCanvas = null;
+    inst._updateZoomCanvas();
+
+    expect(zoomCtx.clearRect).not.toHaveBeenCalled();
+    expect(zoomCtx.drawImage).not.toHaveBeenCalled();
+  });
+});
+
 /* ─── vr-controller-input: floating window behavior ─────────────────────── */
 
 describe('vr-controller-input floating windows', () => {

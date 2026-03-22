@@ -481,16 +481,21 @@ AFRAME.registerComponent('vr-controller-input', {
 
     // Rotate direction by the inverse of the sky's Y rotation to get the
     // direction in the equirectangular texture's coordinate frame.
-    const cosA = Math.cos(-skyYRad);
-    const sinA = Math.sin(-skyYRad);
+    // The inverse of R_y(skyYRad) is R_y(-skyYRad), whose matrix elements
+    // use cos(skyYRad) and -sin(skyYRad) — note the sign is the OPPOSITE of
+    // the forward rotation.
+    const cosA = Math.cos(skyYRad);
+    const sinA = Math.sin(skyYRad);
     const texX = worldDir.x * cosA - worldDir.z * sinA;
     const texZ = worldDir.x * sinA + worldDir.z * cosA;
     const texY = worldDir.y;
 
     // Map to equirectangular UV [0,1]×[0,1].
-    const azimuth   = Math.atan2(texX, -texZ);                       // [-π, π]
+    // Three.js SphereGeometry places u=0 at local -X (phi=0) and increases
+    // phi = atan2(z, -x), so azimuth must be computed from (texZ, -texX).
+    const azimuth   = Math.atan2(texZ, -texX);                       // [-π, π]
     const elevation = Math.asin(Math.max(-1, Math.min(1, texY)));
-    const u = ((azimuth / (Math.PI * 2)) + 0.5 + 1) % 1;
+    const u = ((azimuth / (Math.PI * 2)) + 1) % 1;
     const v = 0.5 - elevation / Math.PI;
 
     // Crop region: square in angular space → no aspect-ratio distortion when

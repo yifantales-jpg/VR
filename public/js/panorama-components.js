@@ -467,9 +467,12 @@ AFRAME.registerComponent('vr-controller-input', {
     const camera = this._cameraEl;
     if (!camera || !this._panoramaCanvas || !this._zoomCanvas) return;
 
+    const cameraObj = (camera.getObject3D && camera.getObject3D('camera')) || camera.object3D;
+    if (!cameraObj) return;
+
     // Camera world-space look direction (pre-allocated vectors reused each tick).
     this._worldDir.set(0, 0, -1);
-    this._worldDir.applyQuaternion(camera.object3D.getWorldQuaternion(this._worldQuat));
+    this._worldDir.applyQuaternion(cameraObj.getWorldQuaternion(this._worldQuat));
     const worldDir = this._worldDir;
 
     // Read the sky's actual Object3D Y-rotation (radians) so the crop uses

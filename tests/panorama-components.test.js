@@ -390,6 +390,48 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._factsActive).toBe(false);
   });
 
+  // ── _showZoomFrame / _showFactsFrame animation reset ─────────────────────
+
+  test('_showZoomFrame: removes old animations and resets scale before showing', () => {
+    const inst = buildInstance();
+    const calls = [];
+    inst._zoomFrameEl = {
+      removeAttribute: jest.fn((attr) => calls.push(['remove', attr])),
+      setAttribute:    jest.fn((attr, val) => calls.push(['set', attr, val])),
+    };
+
+    inst._showZoomFrame();
+
+    expect(inst._zoomFrameEl.removeAttribute).toHaveBeenCalledWith('animation__hide');
+    expect(inst._zoomFrameEl.removeAttribute).toHaveBeenCalledWith('animation__show');
+    // Scale must be reset before visible is set to true.
+    const scaleIdx   = calls.findIndex(([op, attr]) => op === 'set' && attr === 'scale');
+    const visibleIdx = calls.findIndex(([op, attr]) => op === 'set' && attr === 'visible');
+    expect(scaleIdx).toBeLessThan(visibleIdx);
+    expect(calls[scaleIdx][2]).toBe('0.01 0.01 0.01');
+    expect(calls[visibleIdx][2]).toBe(true);
+  });
+
+  test('_showFactsFrame: removes old animations and resets scale before showing', () => {
+    const inst = buildInstance();
+    const calls = [];
+    inst._factsTextEl  = { setAttribute: jest.fn() };
+    inst._factsFrameEl = {
+      removeAttribute: jest.fn((attr) => calls.push(['remove', attr])),
+      setAttribute:    jest.fn((attr, val) => calls.push(['set', attr, val])),
+    };
+
+    inst._showFactsFrame('hello');
+
+    expect(inst._factsFrameEl.removeAttribute).toHaveBeenCalledWith('animation__hide');
+    expect(inst._factsFrameEl.removeAttribute).toHaveBeenCalledWith('animation__show');
+    const scaleIdx   = calls.findIndex(([op, attr]) => op === 'set' && attr === 'scale');
+    const visibleIdx = calls.findIndex(([op, attr]) => op === 'set' && attr === 'visible');
+    expect(scaleIdx).toBeLessThan(visibleIdx);
+    expect(calls[scaleIdx][2]).toBe('0.01 0.01 0.01');
+    expect(calls[visibleIdx][2]).toBe(true);
+  });
+
   // ── Thumbstick up → magnification frame ──────────────────────────────────
 
   test('_onThumbstick: left stick up shows zoom frame when not already active', () => {

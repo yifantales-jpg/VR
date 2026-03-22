@@ -533,14 +533,42 @@ describe('vr-controller-input floating windows', () => {
     expect(calls[visibleIdx][2]).toBe(true);
   });
 
-  test('_updateFactsText normalises line breaks into a single paragraph', () => {
+  test('_updateFactsText normalizes whitespace into a single paragraph', () => {
     const inst = buildInstance();
     inst._factsTextEl = { setAttribute: jest.fn() };
 
-    inst._updateFactsText('First sentence.\nSecond sentence.');
+    const cases = [
+      {
+        input: 'First sentence.\nSecond sentence.',
+        expected: 'First sentence. Second sentence.',
+      },
+      {
+        input: 'First sentence.\n\n  Second sentence.',
+        expected: 'First sentence. Second sentence.',
+      },
+      {
+        input: 'Single sentence only.',
+        expected: 'Single sentence only.',
+      },
+      {
+        input: '',
+        expected: '',
+      },
+    ];
 
-    expect(inst._factsTextEl.setAttribute)
-      .toHaveBeenCalledWith('value', 'First sentence. Second sentence.');
+    cases.forEach(({ input, expected }) => {
+      inst._updateFactsText(input);
+      expect(inst._factsTextEl.setAttribute).toHaveBeenLastCalledWith('value', expected);
+    });
+  });
+
+  test('_updateFactsText preserves non-string inputs', () => {
+    const inst = buildInstance();
+    inst._factsTextEl = { setAttribute: jest.fn() };
+
+    inst._updateFactsText(42);
+
+    expect(inst._factsTextEl.setAttribute).toHaveBeenCalledWith('value', 42);
   });
 
   test('_setupFactsFrame centers the facts panel and text', () => {

@@ -270,6 +270,14 @@ AFRAME.registerComponent('vr-controller-input', {
     this._zoomCanvas.height = 512;
     this._zoomTexture       = null;
 
+    // Cache frequently-accessed DOM elements to avoid per-frame queries.
+    this._cameraEl = this.el.querySelector('[camera]');
+    this._skyEl    = document.getElementById('panorama-sky');
+
+    // Pre-allocate THREE objects reused every tick to avoid per-frame GC pressure.
+    this._worldDir  = new THREE.Vector3();
+    this._worldQuat = new THREE.Quaternion();
+
     this._onThumbstick = this._onThumbstick.bind(this);
     this._onXButton    = this._onXButton.bind(this);
     this._onYButton    = this._onYButton.bind(this);
@@ -291,17 +299,17 @@ AFRAME.registerComponent('vr-controller-input', {
   },
 
   /**
-   * Create a square floating frame that displays a 4× magnified crop of the
+   * Create a square floating frame that displays a zoomed crop of the
    * panorama canvas centred on the camera's look direction.  The frame is
    * parented to the camera entity so it follows head movement naturally.
    */
   _setupZoomFrame() {
-    const camera = this.el.querySelector('[camera]');
+    const camera = this._cameraEl;
     if (!camera) return;
 
-    // Container entity – positioned 0.7 m in front of the camera.
+    // Container entity – positioned 0.5 m in front of the camera.
     this._zoomFrameEl = document.createElement('a-entity');
-    this._zoomFrameEl.setAttribute('position', '0 0 -0.7');
+    this._zoomFrameEl.setAttribute('position', '0 0 -0.5');
     this._zoomFrameEl.setAttribute('visible', false);
 
     // Thin dark border (slightly larger than the image).
@@ -342,7 +350,7 @@ AFRAME.registerComponent('vr-controller-input', {
    * view.  Also parented to the camera entity so it tracks head movement.
    */
   _setupFactsFrame() {
-    const camera = this.el.querySelector('[camera]');
+    const camera = this._cameraEl;
     if (!camera) return;
 
     this._factsFrameEl = document.createElement('a-entity');
@@ -443,26 +451,31 @@ AFRAME.registerComponent('vr-controller-input', {
   },
 
   /**
-   * Sample a 4× zoomed crop of the equirectangular panorama centred on the
+   * Sample a zoomed crop of the equirectangular panorama centred on the
    * camera's world-space look direction, and paint it onto _zoomCanvas.
    *
    * The sky sphere may be rotated (heading offset), so the camera direction
    * is un-rotated by the sky's Y rotation before the UV lookup.
    * Horizontal wrapping at the ±180° seam is handled explicitly.
+   *
+   * The crop is a square region in angular space (srcW = srcH in pixels,
+   * since equirectangular has equal angular resolution in both axes for a
+   * 2:1 canvas), so the image is displayed without aspect-ratio distortion
+   * in the square zoom window.
    */
   _updateZoomCanvas() {
-    const camera = this.el.querySelector('[camera]');
+    const camera = this._cameraEl;
     if (!camera || !this._panoramaCanvas || !this._zoomCanvas) return;
 
-    // Camera world-space look direction.
-    const worldDir = new THREE.Vector3(0, 0, -1);
-    worldDir.applyQuaternion(camera.object3D.getWorldQuaternion(new THREE.Quaternion()));
+    // Camera world-space look direction (pre-allocated vectors reused each tick).
+    this._worldDir.set(0, 0, -1);
+    this._worldDir.applyQuaternion(camera.object3D.getWorldQuaternion(this._worldQuat));
+    const worldDir = this._worldDir;
 
     // Convert sky Y-rotation (degrees) to radians so we can un-rotate.
-    const skyEl  = document.getElementById('panorama-sky');
-    let   skyYRad = 0;
-    if (skyEl) {
-      const skyRot = skyEl.getAttribute('rotation');
+    let skyYRad = 0;
+    if (this._skyEl) {
+      const skyRot = this._skyEl.getAttribute('rotation');
       if (skyRot) skyYRad = (skyRot.y || 0) * Math.PI / 180;
     }
 
@@ -480,11 +493,14 @@ AFRAME.registerComponent('vr-controller-input', {
     const u = ((azimuth / (Math.PI * 2)) + 0.5 + 1) % 1;
     const v = 0.5 - elevation / Math.PI;
 
-    // Crop region: 1/4 of each dimension → 4× effective zoom.
+    // Crop region: square in angular space → no aspect-ratio distortion when
+    // displayed in the square zoom window.  panoW/16 pixels ≈ 22.5°, giving
+    // roughly 3-4× visual zoom at the 0.5 m window distance.
     const panoW = this._panoramaCanvas.width;
     const panoH = this._panoramaCanvas.height;
-    const srcW  = panoW / 4;
-    const srcH  = panoH / 4;
+    const side  = Math.floor(panoW / 16);   // equal angular size in both axes
+    const srcW  = side;
+    const srcH  = side;
     const srcX  = u * panoW - srcW / 2;
     // Clamp vertically (no vertical wrap on equirectangular).
     const srcY  = Math.max(0, Math.min(panoH - srcH, v * panoH - srcH / 2));

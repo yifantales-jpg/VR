@@ -61,6 +61,40 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
 
 ---
 
+## Configuration
+
+### Environment variables
+
+Copy `.env.example` to `.env` and edit the values:
+
+```bash
+cp .env.example .env
+```
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `META_AI_API_KEY` | No (Yes for AI Facts) | — | Llama API key — see below |
+| `PORT` | No | `3000` | HTTP port |
+| `HTTPS_PORT` | No | `3443` | HTTPS port |
+| `SSL_CERT_FILE` | No | *(auto-generated)* | Path to PEM certificate file |
+| `SSL_KEY_FILE` | No | *(auto-generated)* | Path to PEM private key file |
+
+### Getting a Llama API key (`META_AI_API_KEY`)
+
+The **"Discover Facts"** feature sends a snapshot of the current panorama to the [Meta Llama API](https://api.llama.com) to generate interesting location facts. To enable it:
+
+1. Visit **<https://llama.developer.meta.com/>** and sign in with a Meta account.
+2. Create a new application / project in the developer dashboard.
+3. Copy the **API key** displayed in the dashboard.
+4. Paste it into your `.env` file:
+   ```
+   META_AI_API_KEY=your_llama_api_key_here
+   ```
+
+> **Note:** Without `META_AI_API_KEY` the server still runs and Street View works normally — only the AI Facts endpoint (`POST /api/ai-facts`) will return HTTP 503.
+
+---
+
 ## Quick Start — Web (Quest 3 Browser)
 
 1. **Clone & install:**
@@ -70,14 +104,20 @@ Immersive Google Street View experience for Meta Quest 3, built with **A-Frame W
    npm install
    ```
 
-2. **Start the server:**
+2. **Configure environment variables** (optional for basic use):
+   ```bash
+   cp .env.example .env
+   # Edit .env and set META_AI_API_KEY if you want the AI Facts feature
+   ```
+
+3. **Start the server:**
    ```bash
    npm start
    # → HTTP  server running on http://localhost:3000
    # → HTTPS server running on https://localhost:3443
    ```
 
-3. **Open in Quest 3:**
+4. **Open in Quest 3:**
    - Find your machine's local IP (e.g. `192.168.1.42`).
    - Open the **Meta Browser** on your Quest 3.
    - Navigate to `https://192.168.1.42:3443`.
@@ -172,7 +212,8 @@ Navigation arrows appear on the ground plane at the compass headings of adjacent
 
 ### Security
 
-- **No API key is used or required.** All requests go to Google's public CBK tile service, the same endpoint used by the Maps SDK.
+- **No Google API key required.** Street View tiles and metadata are fetched from Google's public CBK tile service, the same endpoint used by the Maps SDK.
+- **Llama API key** (`META_AI_API_KEY`) is only needed for the optional AI Facts feature. It is kept server-side and never exposed to the browser.
 - The tile proxy validates all parameters (pano ID format, zoom/x/y bounds) before making upstream requests.
 - Content Security Policy headers are set via `helmet`.
 
@@ -196,6 +237,7 @@ Tests cover:
 For production deployment (HTTPS required for WebXR):
 
 1. Deploy to any HTTPS host (Heroku, Railway, Fly.io, etc.). No Google API keys are required.
+   - Set `META_AI_API_KEY` as an environment variable (or secret) in your hosting provider's dashboard to enable the AI Facts feature.
    - The server auto-generates a self-signed certificate when `SSL_CERT_FILE` / `SSL_KEY_FILE` are not set (suitable for local testing).
    - On a managed host, TLS is typically terminated at the reverse proxy — point `VR_SERVER_URL` to the `https://` address.
    - For self-hosted deployments, supply a real certificate via environment variables:

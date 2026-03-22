@@ -49,6 +49,10 @@
 
 'use strict';
 
+// Load environment variables from .env file (if present) before anything else.
+// Copy .env.example to .env and fill in your values — see README for details.
+require('dotenv').config();
+
 const https      = require('https');
 const fs         = require('fs');
 const express    = require('express');

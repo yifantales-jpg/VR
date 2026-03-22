@@ -58,7 +58,6 @@ function setLoading(loading) {
     $urlInput.classList.remove('loading');
     $urlInput.style.removeProperty('--progress');
   }
-  if (loading) setStatus('Fetching panorama…', 'info');
 }
 
 /** Return (creating if needed) the shared StreetViewService instance. */
@@ -107,8 +106,12 @@ async function resolveShortUrl(url) {
  */
 async function loadFromUrl(input) {
   const trimmed = input.trim();
-  if (!trimmed) return;
+  if (!trimmed) {
+    $urlInput.classList.add('error');
+    return;
+  }
 
+  $urlInput.classList.remove('error');
   setLoading(true);
   clearStatus();
 
@@ -119,7 +122,6 @@ async function loadFromUrl(input) {
     // If direct parsing failed, try resolving URL redirects (e.g. short links
     // like maps.app.goo.gl or t.co) and parse the final destination URL.
     if (!parsed) {
-      setStatus('Resolving URL…', 'info');
       const resolved = await resolveShortUrl(urlToParse);
       if (resolved && resolved !== urlToParse) {
         urlToParse = resolved;
@@ -128,20 +130,18 @@ async function loadFromUrl(input) {
     }
 
     if (!parsed) {
-      throw new Error(
-        'Could not read location from that URL. Please paste a Google Maps Street View link.'
-      );
+      $urlInput.classList.add('error');
+      return;
     }
 
     const svc = getService();
-    setStatus('Fetching panorama data…', 'info');
     const panoData = await svc.fetchPanoData(parsed);
 
     await loadPanorama(panoData);
 
   } catch (err) {
     console.error('[VRStreetView] Load error:', err);
-    setStatus(`Error: ${err.message}`, 'error');
+    $urlInput.classList.add('error');
   } finally {
     setLoading(false);
   }
@@ -181,12 +181,9 @@ async function loadPanorama(panoData, showScene = true) {
 
   if (panoData.photoUrl) {
     // User-contributed Photo Sphere: load the equirectangular image directly.
-    setStatus('Loading panorama image…', 'info');
     await loadPhotoSphereImage(panoData.photoUrl, panoData.photoWidth, panoData.photoHeight);
     console.info(`[VRStreetView] Loaded photo sphere (${panoData.panoId})`);
   } else {
-    setStatus(`Stitching panorama tiles…`, 'info');
-
     let tilesLoaded = 0;
     const totalTiles = Math.pow(2, DEFAULT_TILE_ZOOM) * Math.pow(2, DEFAULT_TILE_ZOOM - 1);
 
@@ -194,7 +191,6 @@ async function loadPanorama(panoData, showScene = true) {
       tilesLoaded = loaded;
       const pct = Math.round((loaded / total) * 100);
       $urlInput.style.setProperty('--progress', `${pct}%`);
-      setStatus(`Loading tiles: ${pct}%`, 'info');
       if (isVRMode) showVRLoadingIndicator(true, `Loading ${pct}%`);
     });
 
@@ -345,7 +341,7 @@ function showVRLoadingIndicator(show, message = 'Loading panorama…') {
 $loadBtn.addEventListener('click', () => {
   const url = $urlInput.value.trim();
   if (!url) {
-    setStatus('Paste a Google Maps Street View URL first.', 'error');
+    $urlInput.classList.add('error');
     return;
   }
   loadFromUrl(url);
@@ -355,6 +351,11 @@ $urlInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     loadFromUrl($urlInput.value);
   }
+});
+
+/** Clear the error state as soon as the user starts editing the URL. */
+$urlInput.addEventListener('input', () => {
+  $urlInput.classList.remove('error');
 });
 
 /** When the user exits VR (X button on controller, or any other means), return to the URL input UI. */

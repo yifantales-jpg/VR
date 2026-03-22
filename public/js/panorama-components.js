@@ -326,17 +326,16 @@ AFRAME.registerComponent('vr-controller-input', {
       xrCamera.cameras.forEach(eyeCam => {
         // projectionMatrix is column-major:
         //   elements[0] = focal-X (m00), elements[5] = focal-Y (m11)
-        //   elements[8] = center-X offset (m02), elements[9] = center-Y offset (m12)
+        //   elements[8] = frustum asymmetry-X (m02), elements[9] = asymmetry-Y (m12)
         //
-        // Scaling all four uniformly by zoomScale scales NDC coordinates
-        // around (0,0) — the correct "digital zoom" that stays centred on
-        // wherever the user is looking and does not distort when turning head.
-        // Scaling only [0] and [5] without [8]/[9] shifts the optical centre
-        // relative to the zoom level, causing off-axis distortion.
+        // Only scale the focal terms [0] and [5].  The asymmetry terms [8]/[9]
+        // encode the per-eye optical-centre offset (IPD + lens shift); scaling
+        // them shifts each eye's gaze direction in NDC space — in opposite
+        // directions for left vs. right — which breaks stereo fusion and causes
+        // the double-image artefact.  Leaving [8]/[9] unchanged keeps the zoom
+        // correctly centred on the user's current gaze direction for both eyes.
         eyeCam.projectionMatrix.elements[0] *= zoomScale;
         eyeCam.projectionMatrix.elements[5] *= zoomScale;
-        eyeCam.projectionMatrix.elements[8] *= zoomScale;
-        eyeCam.projectionMatrix.elements[9] *= zoomScale;
         eyeCam.projectionMatrixInverse
           .copy(eyeCam.projectionMatrix)
           .invert();

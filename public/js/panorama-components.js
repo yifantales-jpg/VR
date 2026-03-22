@@ -357,20 +357,16 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsFrameEl.setAttribute('position', '0 -0.05 -0.75');
     this._factsFrameEl.setAttribute('visible', false);
 
-    const bg = document.createElement('a-plane');
-    bg.setAttribute('width',    '0.90');
-    bg.setAttribute('height',   '0.65');
-    bg.setAttribute('material', 'shader: flat; color: #0d1117; opacity: 0.65; transparent: true');
-    this._factsFrameEl.appendChild(bg);
-
     this._factsTextEl = document.createElement('a-text');
     this._factsTextEl.setAttribute('value',      '');
     this._factsTextEl.setAttribute('align',      'left');
     this._factsTextEl.setAttribute('color',      '#e8e8e8');
-    this._factsTextEl.setAttribute('position',   '-0.43 0.28 0.002');
-    this._factsTextEl.setAttribute('width',      '0.84');
-    this._factsTextEl.setAttribute('wrap-count', '46');
-    this._factsTextEl.setAttribute('scale',      '0.5 0.5 0.5');
+    this._factsTextEl.setAttribute('outline-color', '#4fc3f7');
+    this._factsTextEl.setAttribute('outline-width', '0.02');
+    this._factsTextEl.setAttribute('position',   '-0.34 0.22 0.002');
+    this._factsTextEl.setAttribute('width',      '0.70');
+    this._factsTextEl.setAttribute('wrap-count', '38');
+    this._factsTextEl.setAttribute('scale',      '0.45 0.45 0.45');
     this._factsFrameEl.appendChild(this._factsTextEl);
 
     camera.appendChild(this._factsFrameEl);

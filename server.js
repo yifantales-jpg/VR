@@ -410,7 +410,7 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
   const imageData = dataUrlMatch[2];
 
   const locationHint = description ? ` at "${description}"` : '';
-  const prompt = `This is a Street View panorama${locationHint}. Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.`;
+  const prompt = `You are looking at a Street View panorama${locationHint}. Begin with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.`;
 
   const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
@@ -442,12 +442,14 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
     }
 
     const data  = await upstream.json();
-    const facts = (data.candidates &&
-                   data.candidates[0] &&
-                   data.candidates[0].content &&
-                   data.candidates[0].content.parts &&
-                   data.candidates[0].content.parts[0] &&
-                   data.candidates[0].content.parts[0].text) || '';
+    const parts = data &&
+      data.candidates &&
+      data.candidates[0] &&
+      data.candidates[0].content &&
+      data.candidates[0].content.parts;
+    const facts = Array.isArray(parts)
+      ? parts.map((part) => part && part.text).filter(Boolean).join('')
+      : '';
     res.json({ facts });
 
   } catch (err) {

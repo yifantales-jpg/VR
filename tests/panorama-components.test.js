@@ -494,6 +494,7 @@ describe('vr-controller-input floating windows', () => {
   test('_showZoomFrame: removes old animations and resets scale before showing', () => {
     const inst = buildInstance();
     const calls = [];
+    inst._updateZoomCanvas = jest.fn();
     inst._zoomFrameEl = {
       removeAttribute: jest.fn((attr) => calls.push(['remove', attr])),
       setAttribute:    jest.fn((attr, val) => calls.push(['set', attr, val])),
@@ -501,6 +502,7 @@ describe('vr-controller-input floating windows', () => {
 
     inst._showZoomFrame();
 
+    expect(inst._updateZoomCanvas).toHaveBeenCalled();
     expect(inst._zoomFrameEl.removeAttribute).toHaveBeenCalledWith('animation__hide');
     expect(inst._zoomFrameEl.removeAttribute).toHaveBeenCalledWith('animation__show');
     // Scale must be reset before visible is set to true.
@@ -529,6 +531,88 @@ describe('vr-controller-input floating windows', () => {
     expect(scaleIdx).toBeLessThan(visibleIdx);
     expect(calls[scaleIdx][2]).toBe('0.01 0.01 0.01');
     expect(calls[visibleIdx][2]).toBe(true);
+  });
+
+  test('_updateFactsText normalizes whitespace into a single paragraph', () => {
+    const inst = buildInstance();
+    inst._factsTextEl = { setAttribute: jest.fn() };
+
+    const cases = [
+      {
+        input: 'First sentence.\nSecond sentence.',
+        expected: 'First sentence. Second sentence.',
+      },
+      {
+        input: 'First sentence.\n\n  Second sentence.',
+        expected: 'First sentence. Second sentence.',
+      },
+      {
+        input: 'First  sentence.  Second  sentence.',
+        expected: 'First sentence. Second sentence.',
+      },
+      {
+        input: 'Single sentence only.',
+        expected: 'Single sentence only.',
+      },
+      {
+        input: '',
+        expected: '',
+      },
+    ];
+
+    cases.forEach(({ input, expected }) => {
+      inst._updateFactsText(input);
+      expect(inst._factsTextEl.setAttribute).toHaveBeenLastCalledWith('value', expected);
+    });
+  });
+
+  test('_updateFactsText preserves non-string inputs', () => {
+    const inst = buildInstance();
+    inst._factsTextEl = { setAttribute: jest.fn() };
+
+    inst._updateFactsText(42);
+
+    expect(inst._factsTextEl.setAttribute).toHaveBeenCalledWith('value', 42);
+  });
+
+  test('_setupFactsFrame centers the facts panel and text', () => {
+    const comp = registeredComponents['vr-controller-input'];
+    const inst = Object.create(comp.Component.prototype);
+    inst._cameraEl = { appendChild: jest.fn() };
+
+    const originalDocument = global.document;
+    const created = [];
+    global.document = {
+      createElement: jest.fn((tag) => {
+        const el = {
+          tag,
+          attributes: {},
+          setAttribute: jest.fn(function setAttr(name, value) { this.attributes[name] = value; }),
+          appendChild: jest.fn(),
+        };
+        created.push(el);
+        return el;
+      }),
+    };
+
+    inst._setupFactsFrame();
+
+    expect(inst._factsFrameEl.attributes.position).toBe('0 0 -0.7');
+    expect(inst._factsPanelEl.attributes.width).toBe('0.95');
+    expect(inst._factsPanelEl.attributes.height).toBe('0.5');
+    expect(inst._factsPanelEl.attributes.material)
+      .toBe('shader: flat; color: #111111; opacity: 0.4; transparent: true');
+    expect(inst._factsFrameEl.appendChild).toHaveBeenCalledWith(inst._factsPanelEl);
+    expect(inst._factsTextEl.attributes.align).toBe('center');
+    expect(inst._factsTextEl.attributes.anchor).toBe('center');
+    expect(inst._factsTextEl.attributes.baseline).toBe('center');
+    expect(inst._factsTextEl.attributes.position).toBe('0 0 0.002');
+    expect(inst._factsTextEl.attributes.width).toBe('0.9');
+    expect(inst._factsTextEl.attributes['wrap-count']).toBe('52');
+    expect(inst._factsTextEl.attributes.scale).toBe('0.55 0.55 0.55');
+    expect(inst._cameraEl.appendChild).toHaveBeenCalledWith(inst._factsFrameEl);
+
+    global.document = originalDocument;
   });
 
   // ── Thumbstick up → magnification frame ──────────────────────────────────

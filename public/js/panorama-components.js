@@ -354,19 +354,27 @@ AFRAME.registerComponent('vr-controller-input', {
     if (!camera) return;
 
     this._factsFrameEl = document.createElement('a-entity');
-    this._factsFrameEl.setAttribute('position', '0 -0.05 -0.75');
+    this._factsFrameEl.setAttribute('position', '0 0 -0.7');
     this._factsFrameEl.setAttribute('visible', false);
+
+    this._factsPanelEl = document.createElement('a-plane');
+    this._factsPanelEl.setAttribute('width',    '0.95');
+    this._factsPanelEl.setAttribute('height',   '0.5');
+    this._factsPanelEl.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.4; transparent: true');
+    this._factsFrameEl.appendChild(this._factsPanelEl);
 
     this._factsTextEl = document.createElement('a-text');
     this._factsTextEl.setAttribute('value',      '');
-    this._factsTextEl.setAttribute('align',      'left');
+    this._factsTextEl.setAttribute('align',      'center');
+    this._factsTextEl.setAttribute('anchor',     'center');
+    this._factsTextEl.setAttribute('baseline',   'center');
     this._factsTextEl.setAttribute('color',      '#e8e8e8');
     this._factsTextEl.setAttribute('outline-color', '#4fc3f7');
     this._factsTextEl.setAttribute('outline-width', '0.02');
-    this._factsTextEl.setAttribute('position',   '-0.34 0.22 0.002');
-    this._factsTextEl.setAttribute('width',      '0.70');
-    this._factsTextEl.setAttribute('wrap-count', '38');
-    this._factsTextEl.setAttribute('scale',      '0.45 0.45 0.45');
+    this._factsTextEl.setAttribute('position',   '0 0 0.002');
+    this._factsTextEl.setAttribute('width',      '0.9');
+    this._factsTextEl.setAttribute('wrap-count', '52');
+    this._factsTextEl.setAttribute('scale',      '0.55 0.55 0.55');
     this._factsFrameEl.appendChild(this._factsTextEl);
 
     camera.appendChild(this._factsFrameEl);
@@ -428,6 +436,7 @@ AFRAME.registerComponent('vr-controller-input', {
 
   _showZoomFrame() {
     if (!this._zoomFrameEl) return;
+    this._updateZoomCanvas();
     // Remove any lingering hide/show animations before restarting so the
     // show animation always fires even when the frame was previously closed.
     this._zoomFrameEl.removeAttribute('animation__hide');
@@ -465,6 +474,9 @@ AFRAME.registerComponent('vr-controller-input', {
 
     const cameraObj = (camera.getObject3D && camera.getObject3D('camera')) || camera.object3D;
     if (!cameraObj) return;
+    if (cameraObj.updateMatrixWorld) {
+      cameraObj.updateMatrixWorld(true);
+    }
 
     // Camera world-space look direction (pre-allocated vectors reused each tick).
     this._worldDir.set(0, 0, -1);
@@ -572,7 +584,11 @@ AFRAME.registerComponent('vr-controller-input', {
   },
 
   _updateFactsText(text) {
-    if (this._factsTextEl) this._factsTextEl.setAttribute('value', text);
+    if (!this._factsTextEl) return;
+    const normalized = typeof text === 'string'
+      ? text.replace(/\s+/g, ' ').trim()
+      : text;
+    this._factsTextEl.setAttribute('value', normalized);
   },
 
   /**

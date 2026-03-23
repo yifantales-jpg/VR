@@ -271,7 +271,7 @@ AFRAME.registerComponent('vr-controller-input', {
 
     // Stepped zoom state: a canvas plane in front of the camera shows a
     // cropped portion of the panorama texture — smaller crop = more zoom.
-    this._zoomSteps    = [1, 0.7, 0.5, 0.35];
+    this._zoomSteps    = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42, 0.35];
     this._zoomLevel    = 0;          // index into _zoomSteps (0 = no zoom)
     this._lastZoom     = 0;          // cooldown timestamp for zoom steps
     this._zoomCanvas   = null;       // off-screen canvas for zoom texture
@@ -1121,6 +1121,39 @@ AFRAME.registerComponent('vr-controller-input', {
       const decoder = new TextDecoder();
       let   buffer  = '';
 
+      /**
+       * Parse lines from `text`, updating `accumulated` / `firstChunkReceived`.
+       * Returns true when the [DONE] sentinel is encountered.
+       */
+      const processLines = (text) => {
+        for (const line of text.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') return true;
+          try {
+            const chunk = JSON.parse(payload);
+            if (chunk.error) {
+              if (this._factsActive) {
+                this._hideLoadingBar();
+                this._updateFactsText(chunk.error);
+              }
+              return true; // stop processing on error
+            }
+            if (chunk.text) {
+              accumulated += chunk.text;
+              if (!firstChunkReceived) {
+                firstChunkReceived = true;
+                this._hideLoadingBar();
+              }
+              if (this._factsActive) {
+                this._updateFactsText(accumulated);
+              }
+            }
+          } catch { /* ignore malformed JSON */ }
+        }
+        return false;
+      };
+
       try {
         let done = false;
         while (!done) {
@@ -1134,34 +1167,16 @@ AFRAME.registerComponent('vr-controller-input', {
           const eventBlocks = buffer.split('\n\n');
           buffer = eventBlocks.pop(); // keep the incomplete trailing block
 
+          let streamDone = false;
           for (const block of eventBlocks) {
-            for (const line of block.split('\n')) {
-              if (!line.startsWith('data: ')) continue;
-              const payload = line.slice(6).trim();
-              if (payload === '[DONE]') break;
-              try {
-                const chunk = JSON.parse(payload);
-                if (chunk.error) {
-                  if (this._factsActive) {
-                    this._hideLoadingBar();
-                    this._updateFactsText(chunk.error);
-                  }
-                  return;
-                }
-                if (chunk.text) {
-                  accumulated += chunk.text;
-                  if (!firstChunkReceived) {
-                    firstChunkReceived = true;
-                    this._hideLoadingBar();
-                  }
-                  if (this._factsActive) {
-                    this._updateFactsText(accumulated);
-                  }
-                }
-              } catch { /* ignore malformed JSON */ }
-            }
+            if (processLines(block)) { streamDone = true; break; }
           }
+          if (streamDone) { done = true; break; }
         }
+
+        // Flush any data buffered since the last \n\n (e.g. if the connection
+        // closed before the server sent a trailing double-newline).
+        if (buffer) processLines(buffer);
       } finally {
         reader.releaseLock();
       }

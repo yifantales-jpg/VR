@@ -469,6 +469,32 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
     // Buffer partial lines across chunks and emit complete events to the client.
     let buffer = '';
 
+    /** Forward any complete Gemini SSE events found in `text` to the client. */
+    const processBuffer = (text) => {
+      for (const line of text.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        try {
+          const data  = JSON.parse(payload);
+          const items = data &&
+            data.candidates &&
+            data.candidates[0] &&
+            data.candidates[0].content &&
+            data.candidates[0].content.parts;
+          if (Array.isArray(items)) {
+            // Filter out "thinking" parts (thought: true) returned by reasoning
+            // models like gemini-2.5-flash, then forward non-empty text chunks.
+            const responseText = items
+              .filter((p) => p && !p.thought)
+              .map((p) => p.text)
+              .filter(Boolean)
+              .join('');
+            if (responseText) sendEvent(JSON.stringify({ text: responseText }));
+          }
+        } catch { /* ignore malformed JSON */ }
+      }
+    };
+
     upstream.body.on('data', (chunk) => {
       buffer += chunk.toString();
       // SSE events are separated by double newline.
@@ -476,32 +502,18 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
       buffer = parts.pop(); // last element may be incomplete – keep for next chunk
 
       for (const part of parts) {
-        for (const line of part.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const payload = line.slice(6).trim();
-          try {
-            const data  = JSON.parse(payload);
-            const items = data &&
-              data.candidates &&
-              data.candidates[0] &&
-              data.candidates[0].content &&
-              data.candidates[0].content.parts;
-            if (Array.isArray(items)) {
-              // Filter out "thinking" parts (thought: true) returned by reasoning
-              // models like gemini-2.5-flash, then forward non-empty text chunks.
-              const text = items
-                .filter((p) => p && !p.thought)
-                .map((p) => p.text)
-                .filter(Boolean)
-                .join('');
-              if (text) sendEvent(JSON.stringify({ text }));
-            }
-          } catch { /* ignore malformed JSON */ }
-        }
+        processBuffer(part);
       }
     });
 
     upstream.body.on('end', () => {
+      // Flush any data buffered since the last double-newline.  The final
+      // Gemini chunk may arrive without a trailing \n\n before the stream
+      // closes, which would otherwise leave its text silently discarded.
+      if (buffer) {
+        processBuffer(buffer);
+        buffer = '';
+      }
       sendEvent('[DONE]');
       res.end();
     });

@@ -509,7 +509,7 @@ describe('vr-controller-input floating windows', () => {
     instance._factsScrollLine = 0;
     instance._factsMaxVisible = 12;
     instance._lastFactsScroll = 0;
-    instance._zoomSteps       = [1, 0.7, 0.5, 0.35];
+    instance._zoomSteps       = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42, 0.35];
     instance._zoomLevel       = 0;
     instance._lastZoom        = 0;
     // Use plain objects as hand references so identity checks work.
@@ -956,10 +956,10 @@ describe('vr-controller-input floating windows', () => {
   test('_stepCloser does not exceed maximum zoom level', () => {
     const inst = buildInstance();
     inst.el = { setAttribute: jest.fn() };
-    inst._zoomLevel = 3; // already at max
+    inst._zoomLevel = 7; // already at max (8 steps: indices 0-7)
 
     inst._stepCloser();
-    expect(inst._zoomLevel).toBe(3);
+    expect(inst._zoomLevel).toBe(7);
     expect(inst._zoomPlaneEl.setAttribute).not.toHaveBeenCalled();
   });
 

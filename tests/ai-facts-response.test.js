@@ -223,4 +223,28 @@ describe('POST /api/ai-facts response assembly (SSE streaming)', () => {
     const chunks = parseSseChunks(res.text);
     expect(chunks.some((c) => c.error)).toBe(true);
   });
+
+  it('flushes a Gemini chunk that arrives without a trailing double-newline', async () => {
+    process.env.GEMINI_API_KEY = 'test-key';
+
+    // Simulate a Gemini SSE event whose final bytes arrive without the closing
+    // \n\n before the stream ends — this would previously leave text stuck in
+    // the server-side buffer and produce "No facts available." on the client.
+    const eventJson = JSON.stringify({
+      candidates: [{ content: { parts: [{ text: 'You are looking at a plaza.' }], role: 'model' } }],
+    });
+    const stream = new Readable({ read() {} });
+    process.nextTick(() => {
+      stream.push(`data: ${eventJson}`); // intentionally no trailing \n\n
+      stream.push(null);
+    });
+
+    fetch.mockResolvedValue({ ok: true, body: stream });
+
+    const image = 'data:image/jpeg;base64,' + Buffer.alloc(16).toString('base64');
+    const res = await request(app).post('/api/ai-facts').send({ image });
+
+    expect(res.status).toBe(200);
+    expect(accumulateSseText(res.text)).toBe('You are looking at a plaza.');
+  });
 });

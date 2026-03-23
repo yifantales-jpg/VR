@@ -335,21 +335,21 @@ describe('street-view-scene panorama texture settings', () => {
   });
 });
 
-/* ─── vr-controller-input: _updateZoomCanvas UV mapping ─────────────────── */
+/* ─── vr-controller-input: _updateSnapshotCanvas UV mapping ─────────────── */
 
-describe('_updateZoomCanvas UV mapping', () => {
+describe('_updateSnapshotCanvas UV mapping', () => {
   /**
    * Build a minimal instance wired for UV-mapping tests.
    * worldDir is the desired camera look direction in world space.
    * skyYDeg is the sky sphere's Y rotation in degrees.
    */
-  function buildZoomInstance(skyYDeg, worldDir) {
+  function buildSnapshotInstance(skyYDeg, worldDir) {
     const comp = registeredComponents['vr-controller-input'];
     const inst = Object.create(comp.Component.prototype);
 
     const panoCanvas = { width: 4096, height: 2048 };
     const drawCalls  = [];
-    const zoomCtx    = {
+    const snapCtx    = {
       clearRect: jest.fn(),
       drawImage: jest.fn((...args) => drawCalls.push(args)),
       save:      jest.fn(),
@@ -357,9 +357,9 @@ describe('_updateZoomCanvas UV mapping', () => {
       translate: jest.fn(),
       scale:     jest.fn(),
     };
-    const zoomCanvas = {
+    const snapCanvas = {
       width: 512, height: 512,
-      getContext: () => zoomCtx,
+      getContext: () => snapCtx,
     };
 
     // Mock _worldDir: set() initialises it, applyQuaternion() delivers worldDir.
@@ -375,10 +375,9 @@ describe('_updateZoomCanvas UV mapping', () => {
     inst._cameraEl  = { object3D: { getWorldQuaternion: () => inst._worldQuat } };
     inst._skyEl     = { object3D: { rotation: { y: skyYDeg * Math.PI / 180 } } };
     inst._panoramaCanvas = panoCanvas;
-    inst._zoomCanvas     = zoomCanvas;
-    inst._zoomTexture    = null;
+    inst._snapshotCanvas = snapCanvas;
 
-    return { inst, drawCalls, zoomCtx };
+    return { inst, drawCalls, snapCtx };
   }
 
   // Side length of the crop square (panoW/16).
@@ -386,8 +385,8 @@ describe('_updateZoomCanvas UV mapping', () => {
 
   test('looking forward with sky rotation y=-90° crops at u=0 (north)', () => {
     // u=0 → srcX = 0*4096 - 256/2 = -128 → wraps: draws from panoW-128=3968
-    const { inst, drawCalls } = buildZoomInstance(-90, { x: 0, y: 0, z: -1 });
-    inst._updateZoomCanvas();
+    const { inst, drawCalls } = buildSnapshotInstance(-90, { x: 0, y: 0, z: -1 });
+    inst._updateSnapshotCanvas();
 
     expect(drawCalls.length).toBe(2); // horizontal seam wrap
     // First call: the wrapped left slice starting at panoW + srcX
@@ -396,8 +395,8 @@ describe('_updateZoomCanvas UV mapping', () => {
 
   test('looking backward with sky rotation y=-90° crops at u=0.5 (south)', () => {
     // u=0.5 → srcX = 0.5*4096 - 128 = 2048-128 = 1920 → no wrap
-    const { inst, drawCalls } = buildZoomInstance(-90, { x: 0, y: 0, z: 1 });
-    inst._updateZoomCanvas();
+    const { inst, drawCalls } = buildSnapshotInstance(-90, { x: 0, y: 0, z: 1 });
+    inst._updateSnapshotCanvas();
 
     expect(drawCalls.length).toBe(1);
     expect(drawCalls[0][1]).toBeCloseTo(0.5 * 4096 - SIDE / 2, 0);
@@ -406,42 +405,42 @@ describe('_updateZoomCanvas UV mapping', () => {
   test('looking forward with no sky rotation crops at u=0.75', () => {
     // skyYRad=0, forward -Z → sky local -Z → phi=3π/2 → u=0.75
     // srcX = 0.75*4096 - 128 = 3072-128 = 2944 → no wrap (2944+256=3200 < 4096)
-    const { inst, drawCalls } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
-    inst._updateZoomCanvas();
+    const { inst, drawCalls } = buildSnapshotInstance(0, { x: 0, y: 0, z: -1 });
+    inst._updateSnapshotCanvas();
 
     expect(drawCalls.length).toBe(1);
     expect(drawCalls[0][1]).toBeCloseTo(0.75 * 4096 - SIDE / 2, 0);
   });
 
   test('returns early when panorama canvas is absent', () => {
-    const { inst, zoomCtx } = buildZoomInstance(-90, { x: 0, y: 0, z: -1 });
+    const { inst, snapCtx } = buildSnapshotInstance(-90, { x: 0, y: 0, z: -1 });
     inst._panoramaCanvas = null;
-    inst._updateZoomCanvas();
+    inst._updateSnapshotCanvas();
 
-    expect(zoomCtx.clearRect).not.toHaveBeenCalled();
-    expect(zoomCtx.drawImage).not.toHaveBeenCalled();
+    expect(snapCtx.clearRect).not.toHaveBeenCalled();
+    expect(snapCtx.drawImage).not.toHaveBeenCalled();
   });
 
   test('horizontally flips the crop to match inside-sphere mirroring', () => {
-    const { inst, zoomCtx } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
-    inst._updateZoomCanvas();
+    const { inst, snapCtx } = buildSnapshotInstance(0, { x: 0, y: 0, z: -1 });
+    inst._updateSnapshotCanvas();
 
-    expect(zoomCtx.save).toHaveBeenCalled();
-    expect(zoomCtx.translate).toHaveBeenCalledWith(512, 0);
-    expect(zoomCtx.scale).toHaveBeenCalledWith(-1, 1);
-    expect(zoomCtx.restore).toHaveBeenCalled();
-    expect(zoomCtx.drawImage).toHaveBeenCalled();
+    expect(snapCtx.save).toHaveBeenCalled();
+    expect(snapCtx.translate).toHaveBeenCalledWith(512, 0);
+    expect(snapCtx.scale).toHaveBeenCalledWith(-1, 1);
+    expect(snapCtx.restore).toHaveBeenCalled();
+    expect(snapCtx.drawImage).toHaveBeenCalled();
   });
 
-  test('uses the entity object3D (same parent as zoom frame) for gaze direction', () => {
-    const { inst } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
+  test('uses the entity object3D for gaze direction', () => {
+    const { inst } = buildSnapshotInstance(0, { x: 0, y: 0, z: -1 });
     const entityObj = { getWorldQuaternion: jest.fn(() => inst._worldQuat) };
     inst._cameraEl = {
       getObject3D: jest.fn(name => (name === 'camera' ? { getWorldQuaternion: jest.fn() } : null)),
       object3D: entityObj,
     };
 
-    inst._updateZoomCanvas();
+    inst._updateSnapshotCanvas();
 
     expect(entityObj.getWorldQuaternion).toHaveBeenCalled();
   });
@@ -460,12 +459,14 @@ describe('vr-controller-input floating windows', () => {
     const instance = Object.create(comp.Component.prototype);
     instance.data = { turnStep: 45, turnCooldown: 350, deadzone: 0.5 };
     instance._lastTurn        = 0;
-    instance._zoomActive      = false;
     instance._factsActive     = false;
     instance._factsLines      = [];
     instance._factsScrollLine = 0;
     instance._factsMaxVisible = 12;
     instance._lastFactsScroll = 0;
+    instance._zoomSteps       = [1, 0.7, 0.5, 0.35];
+    instance._zoomLevel       = 0;
+    instance._lastZoom        = 0;
     // Use plain objects as hand references so identity checks work.
     instance._leftHand  = { _id: 'left-hand' };
     instance._rightHand = { _id: 'right-hand' };
@@ -508,29 +509,7 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._factsActive).toBe(false);
   });
 
-  // ── _showZoomFrame / _showFactsFrame animation reset ─────────────────────
-
-  test('_showZoomFrame: removes old animations and resets scale before showing', () => {
-    const inst = buildInstance();
-    const calls = [];
-    inst._updateZoomCanvas = jest.fn();
-    inst._zoomFrameEl = {
-      removeAttribute: jest.fn((attr) => calls.push(['remove', attr])),
-      setAttribute:    jest.fn((attr, val) => calls.push(['set', attr, val])),
-    };
-
-    inst._showZoomFrame();
-
-    expect(inst._updateZoomCanvas).toHaveBeenCalled();
-    expect(inst._zoomFrameEl.removeAttribute).toHaveBeenCalledWith('animation__hide');
-    expect(inst._zoomFrameEl.removeAttribute).toHaveBeenCalledWith('animation__show');
-    // Scale must be reset before visible is set to true.
-    const scaleIdx   = calls.findIndex(([op, attr]) => op === 'set' && attr === 'scale');
-    const visibleIdx = calls.findIndex(([op, attr]) => op === 'set' && attr === 'visible');
-    expect(scaleIdx).toBeLessThan(visibleIdx);
-    expect(calls[scaleIdx][2]).toBe('0.01 0.01 0.01');
-    expect(calls[visibleIdx][2]).toBe(true);
-  });
+  // ── _showFactsFrame animation reset ────────────────────────────────────
 
   test('_showFactsFrame: removes old animations and resets scale before showing', () => {
     const inst = buildInstance();
@@ -558,8 +537,9 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('visible', false);
   });
 
-  test('_showFactsFrame: shows loading bar when called without text', () => {
+  test('_showFactsFrame: shows loading bar and clears text when called without text', () => {
     const inst = buildInstance();
+    inst._factsTextEl = { setAttribute: jest.fn() };
     inst._loadingBarEl = {
       setAttribute:    jest.fn(),
       removeAttribute: jest.fn(),
@@ -572,9 +552,13 @@ describe('vr-controller-input floating windows', () => {
     inst._showFactsFrame();
 
     expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('visible', true);
+    // Previous text should be cleared.
+    expect(inst._factsTextEl.setAttribute).toHaveBeenCalledWith('value', '');
+    expect(inst._factsLines).toEqual([]);
+    expect(inst._factsScrollLine).toBe(0);
   });
 
-  test('_updateFactsText preserves line breaks and renders visible window', () => {
+  test('_updateFactsText strips markdown and renders visible window', () => {
     const inst = buildInstance();
     inst._factsTextEl = { setAttribute: jest.fn() };
     inst._factsLines = [];
@@ -602,6 +586,10 @@ describe('vr-controller-input floating windows', () => {
         input: '',
         expected: '',
       },
+      {
+        input: '## Heading\n\n**bold** and *italic*',
+        expected: 'Heading\n\nbold and italic',
+      },
     ];
 
     cases.forEach(({ input, expected }) => {
@@ -622,7 +610,7 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._factsTextEl.setAttribute).toHaveBeenCalledWith('value', 42);
   });
 
-  test('_setupFactsFrame creates text panel without background and with loading bar', () => {
+  test('_setupFactsFrame creates text panel with background and loading bar', () => {
     const comp = registeredComponents['vr-controller-input'];
     const inst = Object.create(comp.Component.prototype);
     inst._cameraEl = { appendChild: jest.fn() };
@@ -644,18 +632,24 @@ describe('vr-controller-input floating windows', () => {
 
     inst._setupFactsFrame();
 
-    expect(inst._factsFrameEl.attributes.position).toBe('0 -0.12 -0.7');
-    // No background panel — text is rendered directly with outline border.
+    expect(inst._factsFrameEl.attributes.position).toBe('0 -0.18 -0.7');
+
+    // Background panel is created.
+    expect(inst._factsBgEl).toBeDefined();
+    expect(inst._factsBgEl.tag).toBe('a-plane');
+    expect(inst._factsBgEl.attributes.width).toBe('0.62');
+    expect(inst._factsBgEl.attributes.height).toBe('0.42');
+
+    // Text element attributes (no outline-color / outline-width).
     expect(inst._factsTextEl.attributes.align).toBe('left');
     expect(inst._factsTextEl.attributes.anchor).toBe('center');
     expect(inst._factsTextEl.attributes.baseline).toBe('top');
     expect(inst._factsTextEl.attributes.color).toBe('#ffffff');
-    expect(inst._factsTextEl.attributes['outline-color']).toBe('#000000');
-    expect(inst._factsTextEl.attributes['outline-width']).toBe('0.08');
     expect(inst._factsTextEl.attributes.position).toBe('0 0.17 0.002');
     expect(inst._factsTextEl.attributes.width).toBe('0.55');
     expect(inst._factsTextEl.attributes['wrap-count']).toBe('55');
-    expect(inst._factsTextEl.attributes.scale).toBeUndefined();
+    expect(inst._factsTextEl.attributes['outline-color']).toBeUndefined();
+    expect(inst._factsTextEl.attributes['outline-width']).toBeUndefined();
 
     // Loading bar is created.
     expect(inst._loadingBarEl).toBeDefined();
@@ -675,6 +669,26 @@ describe('vr-controller-input floating windows', () => {
 
     const lines = inst._wrapText('one two three four five six', 10);
     expect(lines).toEqual(['one two', 'three four', 'five six']);
+  });
+
+  test('_wrapText collapses consecutive blank lines into a single blank line for paragraph spacing', () => {
+    const comp = registeredComponents['vr-controller-input'];
+    const inst = Object.create(comp.Component.prototype);
+
+    const lines = inst._wrapText('para one\n\n\npara two', 55);
+    expect(lines).toEqual(['para one', '', 'para two']);
+  });
+
+  test('_stripMarkdown removes heading markers, bold, italic, inline code, and links', () => {
+    const comp = registeredComponents['vr-controller-input'];
+    const inst = Object.create(comp.Component.prototype);
+
+    expect(inst._stripMarkdown('## Heading')).toBe('Heading');
+    expect(inst._stripMarkdown('**bold**')).toBe('bold');
+    expect(inst._stripMarkdown('*italic*')).toBe('italic');
+    expect(inst._stripMarkdown('`code`')).toBe('code');
+    expect(inst._stripMarkdown('[link](http://example.com)')).toBe('link');
+    expect(inst._stripMarkdown('- item')).toBe('• item');
   });
 
   test('_scrollFacts scrolls down and clamps at end', () => {
@@ -704,22 +718,26 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._factsScrollLine).toBe(0);
   });
 
-  test('_onThumbstick: left stick up/down scrolls facts when panel is active', () => {
+  test('_onThumbstick: left stick up/down scrolls facts when panel is active (reversed direction)', () => {
     const inst = buildInstance();
     inst._factsActive = true;
     inst._scrollFacts = jest.fn();
-    inst._showZoomFrame = jest.fn();
+    inst._stepCloser  = jest.fn();
+    inst._resetZoom   = jest.fn();
 
-    inst._onThumbstick({ detail: { x: 0, y: 0.9 }, target: inst._leftHand });
+    // Stick up (y < -dz) → scroll down (show later lines)
+    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
     expect(inst._scrollFacts).toHaveBeenCalledWith(3);
 
     inst._scrollFacts.mockClear();
     inst._lastFactsScroll = 0; // reset cooldown
-    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
+    // Stick down (y > dz) → scroll up (show earlier lines)
+    inst._onThumbstick({ detail: { x: 0, y: 0.9 }, target: inst._leftHand });
     expect(inst._scrollFacts).toHaveBeenCalledWith(-3);
 
-    // Zoom frame should NOT be triggered
-    expect(inst._showZoomFrame).not.toHaveBeenCalled();
+    // Zoom should NOT be triggered
+    expect(inst._stepCloser).not.toHaveBeenCalled();
+    expect(inst._resetZoom).not.toHaveBeenCalled();
   });
 
   test('_hideFactsFrame resets scroll state and hides loading bar', () => {
@@ -789,50 +807,57 @@ describe('vr-controller-input floating windows', () => {
     delete global.navigator;
   });
 
-  // ── Thumbstick up → magnification frame ──────────────────────────────────
+  // ── Thumbstick up / down → stepped zoom (both controllers) ─────────────
 
-  test('_onThumbstick: left stick up shows zoom frame when not already active', () => {
+  test('_onThumbstick: stick up steps closer (both controllers)', () => {
     const inst = buildInstance();
-    inst._showZoomFrame = jest.fn();
-    inst._hideZoomFrame = jest.fn();
+    inst.el = {
+      getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
+      setAttribute: jest.fn(),
+    };
 
+    // Left controller
     inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
+    expect(inst._zoomLevel).toBe(1);
+    expect(inst.el.setAttribute).toHaveBeenCalledWith('scale', { x: 0.7, y: 0.7, z: 0.7 });
 
-    expect(inst._showZoomFrame).toHaveBeenCalledTimes(1);
-    expect(inst._zoomActive).toBe(true);
-  });
-
-  test('_onThumbstick: left stick up while already active does not call _showZoomFrame again', () => {
-    const inst = buildInstance();
-    inst._zoomActive    = true;
-    inst._showZoomFrame = jest.fn();
-    inst._hideZoomFrame = jest.fn();
-
-    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
-
-    expect(inst._showZoomFrame).not.toHaveBeenCalled();
-  });
-
-  test('_onThumbstick: releasing left stick (y in deadzone) hides zoom frame', () => {
-    const inst = buildInstance();
-    inst._zoomActive    = true;
-    inst._showZoomFrame = jest.fn();
-    inst._hideZoomFrame = jest.fn();
-
-    inst._onThumbstick({ detail: { x: 0, y: 0 }, target: inst._leftHand });
-
-    expect(inst._hideZoomFrame).toHaveBeenCalled();
-    expect(inst._zoomActive).toBe(false);
-  });
-
-  test('_onThumbstick: right stick up does NOT trigger zoom frame', () => {
-    const inst = buildInstance();
-    inst._showZoomFrame = jest.fn();
-
+    // Right controller
+    inst._lastZoom = 0;
     inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._rightHand });
+    expect(inst._zoomLevel).toBe(2);
+    expect(inst.el.setAttribute).toHaveBeenCalledWith('scale', { x: 0.5, y: 0.5, z: 0.5 });
+  });
 
-    expect(inst._showZoomFrame).not.toHaveBeenCalled();
-    expect(inst._zoomActive).toBe(false);
+  test('_onThumbstick: stick down resets zoom to default', () => {
+    const inst = buildInstance();
+    inst._zoomLevel = 2;
+    inst.el = {
+      getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
+      setAttribute: jest.fn(),
+    };
+
+    inst._onThumbstick({ detail: { x: 0, y: 0.9 }, target: inst._leftHand });
+    expect(inst._zoomLevel).toBe(0);
+    expect(inst.el.setAttribute).toHaveBeenCalledWith('scale', { x: 1, y: 1, z: 1 });
+  });
+
+  test('_stepCloser does not exceed maximum zoom level', () => {
+    const inst = buildInstance();
+    inst.el = { setAttribute: jest.fn() };
+    inst._zoomLevel = 3; // already at max
+
+    inst._stepCloser();
+    expect(inst._zoomLevel).toBe(3);
+    expect(inst.el.setAttribute).not.toHaveBeenCalled();
+  });
+
+  test('_resetZoom does nothing when already at default', () => {
+    const inst = buildInstance();
+    inst.el = { setAttribute: jest.fn() };
+    inst._zoomLevel = 0;
+
+    inst._resetZoom();
+    expect(inst.el.setAttribute).not.toHaveBeenCalled();
   });
 
   // ── Stepped rotation still works on both controllers ─────────────────────

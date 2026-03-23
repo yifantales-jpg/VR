@@ -239,14 +239,12 @@ AFRAME.registerComponent('loading-overlay', {
 
 /**
  * Handles Quest controller input while in VR:
- *   - Left thumbstick left / right → rotate camera rig in discrete steps.
- *   - Left thumbstick up (held)    → show a magnification frame (4× zoom crop
- *                                    of the panorama centred on the gaze direction).
- *                                    Releasing the stick fades the frame out.
- *   - Right thumbstick left / right→ also rotates (same as left).
- *   - B button (right hand)        → request AI facts about the current view;
- *                                    tap again to dismiss (copies text to clipboard).
- *   - X button (left hand)         → exit VR.
+ *   - Left / right thumbstick left / right → rotate camera rig in discrete steps.
+ *   - Left / right thumbstick up           → step closer (zoom in via rig scaling).
+ *   - Left / right thumbstick down         → reset to default distance.
+ *   - B button (right hand)                → request AI facts about the current view;
+ *                                            tap again to dismiss (copies text to clipboard).
+ *   - X button (left hand)                 → exit VR.
  *
  * Attach to the #camera-rig entity: <a-entity vr-controller-input …>
  */
@@ -259,8 +257,12 @@ AFRAME.registerComponent('vr-controller-input', {
 
   init() {
     this._lastTurn    = 0;
-    this._zoomActive  = false;
     this._factsActive = false;
+
+    // Stepped zoom state: scaling the camera rig simulates proximity.
+    this._zoomSteps    = [1, 0.7, 0.5, 0.35];
+    this._zoomLevel    = 0;          // index into _zoomSteps (0 = default)
+    this._lastZoom     = 0;          // cooldown timestamp for zoom steps
 
     // Facts-panel scroll state.
     this._factsLines       = [];   // all wrapped lines of the current AI response
@@ -270,11 +272,10 @@ AFRAME.registerComponent('vr-controller-input', {
 
     this._panoramaCanvas = document.getElementById('panorama-canvas');
 
-    // Off-screen canvas painted with a zoomed crop of the panorama.
-    this._zoomCanvas        = document.createElement('canvas');
-    this._zoomCanvas.width  = 512;
-    this._zoomCanvas.height = 512;
-    this._zoomTexture       = null;
+    // Off-screen canvas used for AI facts snapshot.
+    this._snapshotCanvas        = document.createElement('canvas');
+    this._snapshotCanvas.width  = 512;
+    this._snapshotCanvas.height = 512;
 
     // Cache frequently-accessed DOM elements to avoid per-frame queries.
     this._cameraEl   = this.el.querySelector('[camera]');
@@ -303,55 +304,7 @@ AFRAME.registerComponent('vr-controller-input', {
       this._rightHand.addEventListener('bbuttondown',    this._onBButton);
     }
 
-    this._setupZoomFrame();
     this._setupFactsFrame();
-  },
-
-  /**
-   * Create a square floating frame that displays a zoomed crop of the
-   * panorama canvas centred on the camera's look direction.  The frame is
-   * parented to the camera entity so it follows head movement naturally.
-   */
-  _setupZoomFrame() {
-    const camera = this._cameraEl;
-    if (!camera) return;
-
-    // Container entity – positioned 0.5 m in front of the camera.
-    this._zoomFrameEl = document.createElement('a-entity');
-    this._zoomFrameEl.setAttribute('position', '0 0 -0.5');
-    this._zoomFrameEl.setAttribute('visible', false);
-
-    // Thin dark border (slightly larger than the image).
-    const border = document.createElement('a-plane');
-    border.setAttribute('width',    '0.62');
-    border.setAttribute('height',   '0.62');
-    border.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.35; transparent: true');
-    this._zoomFrameEl.appendChild(border);
-
-    // Image plane – carries the CanvasTexture.
-    this._zoomPlaneEl = document.createElement('a-plane');
-    this._zoomPlaneEl.setAttribute('width',    '0.60');
-    this._zoomPlaneEl.setAttribute('height',   '0.60');
-    this._zoomPlaneEl.setAttribute('position', '0 0 0.001');
-    this._zoomPlaneEl.setAttribute('material', 'shader: flat; side: front');
-    this._zoomFrameEl.appendChild(this._zoomPlaneEl);
-
-    camera.appendChild(this._zoomFrameEl);
-
-    // Attach the zoom canvas as a Three.js texture once the mesh is ready.
-    const applyZoomTexture = () => {
-      const mesh = this._zoomPlaneEl && this._zoomPlaneEl.getObject3D('mesh');
-      if (!mesh) return;
-      this._zoomTexture = new THREE.CanvasTexture(this._zoomCanvas);
-      mesh.material.map = this._zoomTexture;
-      mesh.material.needsUpdate = true;
-    };
-
-    if (this._zoomPlaneEl.getObject3D('mesh')) {
-      applyZoomTexture();
-    } else {
-      this._zoomPlaneEl.addEventListener('loaded', applyZoomTexture, { once: true });
-    }
   },
 
   /**
@@ -363,8 +316,15 @@ AFRAME.registerComponent('vr-controller-input', {
     if (!camera) return;
 
     this._factsFrameEl = document.createElement('a-entity');
-    this._factsFrameEl.setAttribute('position', '0 -0.12 -0.7');
+    this._factsFrameEl.setAttribute('position', '0 -0.18 -0.7');
     this._factsFrameEl.setAttribute('visible', false);
+
+    // Semi-transparent background panel for readability.
+    this._factsBgEl = document.createElement('a-plane');
+    this._factsBgEl.setAttribute('width',    '0.62');
+    this._factsBgEl.setAttribute('height',   '0.42');
+    this._factsBgEl.setAttribute('material', 'shader: flat; color: #000000; opacity: 0.55; transparent: true');
+    this._factsFrameEl.appendChild(this._factsBgEl);
 
     this._factsTextEl = document.createElement('a-text');
     this._factsTextEl.setAttribute('value',      '');
@@ -372,8 +332,6 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsTextEl.setAttribute('anchor',     'center');
     this._factsTextEl.setAttribute('baseline',   'top');
     this._factsTextEl.setAttribute('color',      '#ffffff');
-    this._factsTextEl.setAttribute('outline-color', '#000000');
-    this._factsTextEl.setAttribute('outline-width', '0.08');
     this._factsTextEl.setAttribute('position',   '0 0.17 0.002');
     this._factsTextEl.setAttribute('width',      '0.55');
     this._factsTextEl.setAttribute('wrap-count', '55');
@@ -391,13 +349,6 @@ AFRAME.registerComponent('vr-controller-input', {
     camera.appendChild(this._factsFrameEl);
   },
 
-  /** Update zoom canvas every frame while the magnification frame is visible. */
-  tick() {
-    if (this._zoomActive) {
-      this._updateZoomCanvas();
-    }
-  },
-
   remove() {
     if (this._leftHand) {
       this._leftHand.removeEventListener('thumbstickmoved', this._onThumbstick);
@@ -406,9 +357,6 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._rightHand) {
       this._rightHand.removeEventListener('thumbstickmoved', this._onThumbstick);
       this._rightHand.removeEventListener('bbuttondown',    this._onBButton);
-    }
-    if (this._zoomFrameEl && this._zoomFrameEl.parentNode) {
-      this._zoomFrameEl.parentNode.removeChild(this._zoomFrameEl);
     }
     if (this._factsFrameEl && this._factsFrameEl.parentNode) {
       this._factsFrameEl.parentNode.removeChild(this._factsFrameEl);
@@ -437,66 +385,60 @@ AFRAME.registerComponent('vr-controller-input', {
     if (evt.target === this._leftHand && this._factsActive) {
       if (Math.abs(y) >= dz && now - this._lastFactsScroll >= this.data.turnCooldown) {
         if (y < -dz) {
-          // Stick up → scroll text up (show earlier lines)
-          this._scrollFacts(-3);
-        } else {
-          // Stick down → scroll text down (show later lines)
+          // Stick up → scroll text down (show later lines)
           this._scrollFacts(3);
+        } else {
+          // Stick down → scroll text up (show earlier lines)
+          this._scrollFacts(-3);
         }
         this._lastFactsScroll = now;
       }
-      return; // don't toggle zoom while facts panel is open
+      return; // don't step zoom while facts panel is open
     }
 
-    // ── Up → magnification frame (left controller only) ───────────────────
-    if (evt.target === this._leftHand) {
+    // ── Up / Down → stepped zoom (both controllers) ──────────────────────
+    if (Math.abs(y) >= dz && now - this._lastZoom >= this.data.turnCooldown) {
       if (y < -dz) {
-        if (!this._zoomActive) this._showZoomFrame();
-        this._zoomActive = true;
-      } else if (this._zoomActive) {
-        this._zoomActive = false;
-        this._hideZoomFrame();
+        // Stick up → step closer
+        this._stepCloser();
+      } else {
+        // Stick down → reset to default distance
+        this._resetZoom();
       }
+      this._lastZoom = now;
     }
   },
 
-  _showZoomFrame() {
-    if (!this._zoomFrameEl) return;
-    this._updateZoomCanvas();
-    // Remove any lingering hide/show animations before restarting so the
-    // show animation always fires even when the frame was previously closed.
-    this._zoomFrameEl.removeAttribute('animation__hide');
-    this._zoomFrameEl.removeAttribute('animation__show');
-    this._zoomFrameEl.setAttribute('scale', '0.01 0.01 0.01');
-    this._zoomFrameEl.setAttribute('visible', true);
-    this._zoomFrameEl.setAttribute('animation__show',
-      'property: scale; from: 0.01 0.01 0.01; to: 1 1 1; dur: 200; easing: easeOutBack');
+  /** Scale the camera rig one step smaller to simulate moving closer. */
+  _stepCloser() {
+    if (this._zoomLevel < this._zoomSteps.length - 1) {
+      this._zoomLevel++;
+      this._applyZoom();
+    }
   },
 
-  _hideZoomFrame() {
-    if (!this._zoomFrameEl) return;
-    this._zoomFrameEl.setAttribute('animation__hide',
-      'property: scale; from: 1 1 1; to: 0.01 0.01 0.01; dur: 200; easing: easeInBack');
-    const frameEl = this._zoomFrameEl;
-    setTimeout(() => { if (frameEl) frameEl.setAttribute('visible', false); }, 220);
+  /** Reset the camera rig scale to the default (1). */
+  _resetZoom() {
+    if (this._zoomLevel !== 0) {
+      this._zoomLevel = 0;
+      this._applyZoom();
+    }
+  },
+
+  /** Apply the current zoom level to the camera rig scale. */
+  _applyZoom() {
+    const s = this._zoomSteps[this._zoomLevel];
+    this.el.setAttribute('scale', { x: s, y: s, z: s });
   },
 
   /**
-   * Sample a zoomed crop of the equirectangular panorama centred on the
-   * camera's world-space look direction, and paint it onto _zoomCanvas.
-   *
-   * The sky sphere may be rotated (heading offset), so the camera direction
-   * is un-rotated by the sky's Y rotation before the UV lookup.
-   * Horizontal wrapping at the ±180° seam is handled explicitly.
-   *
-   * The crop is a square region in angular space (srcW = srcH in pixels,
-   * since equirectangular has equal angular resolution in both axes for a
-   * 2:1 canvas), so the image is displayed without aspect-ratio distortion
-   * in the square zoom window.
+   * Sample a crop of the equirectangular panorama centred on the camera's
+   * world-space look direction and paint it onto _snapshotCanvas.
+   * Used internally for AI-facts image capture.
    */
-  _updateZoomCanvas() {
+  _updateSnapshotCanvas() {
     const camera = this._cameraEl;
-    if (!camera || !this._panoramaCanvas || !this._zoomCanvas) return;
+    if (!camera || !this._panoramaCanvas || !this._snapshotCanvas) return;
 
     const cameraObj = camera.object3D;
     if (!cameraObj) return;
@@ -557,9 +499,9 @@ AFRAME.registerComponent('vr-controller-input', {
     // Clamp vertically (no vertical wrap on equirectangular).
     const srcY  = Math.max(0, Math.min(panoH - srcH, v * panoH - srcH / 2));
 
-    const ctx  = this._zoomCanvas.getContext('2d');
-    const dstW = this._zoomCanvas.width;
-    const dstH = this._zoomCanvas.height;
+    const ctx  = this._snapshotCanvas.getContext('2d');
+    const dstW = this._snapshotCanvas.width;
+    const dstH = this._snapshotCanvas.height;
     ctx.clearRect(0, 0, dstW, dstH);
 
     // Flip horizontally: the equirectangular texture is mapped to the inside
@@ -590,8 +532,6 @@ AFRAME.registerComponent('vr-controller-input', {
     }
 
     ctx.restore();
-
-    if (this._zoomTexture) this._zoomTexture.needsUpdate = true;
   },
 
   // ── B button (right hand): AI facts window ───────────────────────────────
@@ -613,6 +553,10 @@ AFRAME.registerComponent('vr-controller-input', {
       this._updateFactsText(text);
       this._hideLoadingBar();
     } else {
+      // Clear previous text when showing the loading bar.
+      if (this._factsTextEl) this._factsTextEl.setAttribute('value', '');
+      this._factsLines      = [];
+      this._factsScrollLine = 0;
       this._showLoadingBar();
     }
     // Remove any lingering hide/show animations before restarting so the
@@ -661,20 +605,52 @@ AFRAME.registerComponent('vr-controller-input', {
   },
 
   /**
+   * Strip common Markdown formatting characters so the plain-text VR
+   * panel shows readable content.
+   */
+  _stripMarkdown(text) {
+    return text
+      // Remove heading markers (e.g. "## Title" → "Title")
+      .replace(/^#{1,6}\s+/gm, '')
+      // Bold / italic markers: ***text***, **text**, *text*, ___text___, __text__, _text_
+      .replace(/\*{1,3}(.+?)\*{1,3}/g, '$1')
+      .replace(/_{1,3}(.+?)_{1,3}/g, '$1')
+      // Inline code: `code`
+      .replace(/`([^`]+)`/g, '$1')
+      // Unordered list markers: "- item" / "* item" → "• item"
+      .replace(/^[\s]*[-*]\s+/gm, '• ')
+      // Ordered list markers: "1. item" → "1. item" (keep as is)
+      // Links: [text](url) → text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Images: ![alt](url) → alt
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+      // Horizontal rules
+      .replace(/^[-*_]{3,}\s*$/gm, '');
+  },
+
+  /**
    * Word-wrap `text` into lines of at most `maxChars` characters.
-   * Preserves explicit line breaks (\n) and blank lines from the original
-   * text.  Within each paragraph, splits on whitespace boundaries; words
-   * longer than maxChars are kept intact on their own line.
+   * Preserves explicit line breaks (\n) from the original text.  Inserts a
+   * blank line between paragraphs (consecutive non-empty blocks separated
+   * by one or more empty lines) to give ~1 em visual spacing.
+   * Within each paragraph, splits on whitespace boundaries; words longer
+   * than maxChars are kept intact on their own line.
    */
   _wrapText(text, maxChars) {
     const paragraphs = text.split('\n');
     const lines = [];
+    let lastWasBlank = false;
     for (const para of paragraphs) {
       const trimmed = para.trim();
       if (trimmed.length === 0) {
-        lines.push('');
+        // Collapse consecutive blank lines into one blank line for spacing.
+        if (!lastWasBlank && lines.length > 0) {
+          lines.push('');
+        }
+        lastWasBlank = true;
         continue;
       }
+      lastWasBlank = false;
       const words = trimmed.split(/[ \t]+/);
       let line = '';
       for (const word of words) {
@@ -699,7 +675,8 @@ AFRAME.registerComponent('vr-controller-input', {
       this._factsTextEl.setAttribute('value', text);
       return;
     }
-    this._factsLines = this._wrapText(text.trim(), 55);
+    const cleaned = this._stripMarkdown(text.trim());
+    this._factsLines = this._wrapText(cleaned, 55);
     this._factsScrollLine = 0;
     this._renderFactsWindow();
   },
@@ -726,13 +703,13 @@ AFRAME.registerComponent('vr-controller-input', {
   },
 
   /**
-   * Capture a JPEG snapshot of the zoomed view (what the user is looking at),
-   * POST it to /api/ai-facts, and display the returned facts in the panel.
+   * Capture a JPEG snapshot of the current view, POST it to /api/ai-facts,
+   * and display the returned facts in the panel.
    */
   _fetchAIFacts() {
-    // Render the zoom canvas once to get the current view snapshot.
-    this._updateZoomCanvas();
-    const snapshot = this._zoomCanvas.toDataURL('image/jpeg', 0.85);
+    // Render the snapshot canvas once to get the current view.
+    this._updateSnapshotCanvas();
+    const snapshot = this._snapshotCanvas.toDataURL('image/jpeg', 0.85);
 
     const locTextEl   = document.getElementById('location-text');
     const description = locTextEl ? (locTextEl.getAttribute('value') || '') : '';

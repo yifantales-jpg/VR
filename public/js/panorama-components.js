@@ -654,6 +654,18 @@ AFRAME.registerComponent('vr-controller-input', {
    * @returns {Array<Object>}
    */
   _formatMarkdown(text, maxChars) {
+    // When the facts canvas is available, use pixel-based line widths so the
+    // text fills the panel properly for any language (including CJK scripts
+    // whose characters do not delimit words with spaces).
+    const ctx = this._factsCanvas ? this._factsCanvas.getContext('2d') : null;
+    const PAD_X            = 32;
+    const FONT_SIZE        = 24;
+    const HEADING_FONT_SIZE = 28;
+    // Pixel width of the usable text area, or char-count fallback.
+    const maxWidth = ctx
+      ? (this._factsCanvas.width - 2 * PAD_X)
+      : (maxChars || 65);
+
     const srcLines = text.split('\n');
     const result   = [];
     let lastWasBlank = false;
@@ -682,7 +694,7 @@ AFRAME.registerComponent('vr-controller-input', {
       if (headingMatch) {
         const level   = headingMatch[1].length;
         const content = this._cleanLinks(headingMatch[2]);
-        this._wrapLine(content, maxChars, 'heading', result, level);
+        this._wrapLine(content, maxWidth, 'heading', result, level, '', ctx, HEADING_FONT_SIZE);
         continue;
       }
 
@@ -690,7 +702,10 @@ AFRAME.registerComponent('vr-controller-input', {
       const ulMatch = trimmed.match(/^[-*]\s+(.*)/);
       if (ulMatch) {
         const content = this._cleanLinks(ulMatch[1]);
-        this._wrapLine(content, maxChars - 2, 'bullet', result, 0, '• ');
+        // Char-based: reduce budget by bullet prefix length; pixel-based:
+        // measureText already accounts for the prefix in the line.
+        const ulWidth = ctx ? maxWidth : maxWidth - 2;
+        this._wrapLine(content, ulWidth, 'bullet', result, 0, '• ', ctx, FONT_SIZE);
         continue;
       }
 
@@ -699,13 +714,14 @@ AFRAME.registerComponent('vr-controller-input', {
       if (olMatch) {
         const prefix  = olMatch[1] + '. ';
         const content = this._cleanLinks(olMatch[2]);
-        this._wrapLine(content, maxChars - prefix.length, 'ordered', result, 0, prefix);
+        const olWidth = ctx ? maxWidth : maxWidth - prefix.length;
+        this._wrapLine(content, olWidth, 'ordered', result, 0, prefix, ctx, FONT_SIZE);
         continue;
       }
 
       // Regular paragraph text.
       const content = this._cleanLinks(trimmed);
-      this._wrapLine(content, maxChars, 'text', result);
+      this._wrapLine(content, maxWidth, 'text', result, 0, '', ctx, FONT_SIZE);
     }
     return result;
   },
@@ -720,31 +736,82 @@ AFRAME.registerComponent('vr-controller-input', {
   /**
    * Word-wrap a single content line and push result objects into `output`.
    * Inline markdown markers (**bold**, *italic*, `code`) are preserved in the
-   * text but excluded from the character-count measurement so wrapping is
-   * based on visible width.
+   * text.
+   *
+   * When `ctx` (a canvas 2D context) is provided, wrapping is pixel-based via
+   * measureText and handles CJK (Chinese/Japanese/Korean) characters that must
+   * be split at every character boundary rather than on spaces.  When `ctx` is
+   * absent the function falls back to a character-count estimate using
+   * `maxWidth` as the maximum number of visible characters per line.
    */
-  _wrapLine(content, maxChars, type, output, headingLevel, prefix) {
+  _wrapLine(content, maxWidth, type, output, headingLevel, prefix, ctx, fontSize) {
     headingLevel = headingLevel || 0;
     prefix       = prefix || '';
+    fontSize     = fontSize || 24;
     const indent = ' '.repeat(prefix.length);
-    const words  = content.split(/[ \t]+/).filter(Boolean);
-    let line     = '';
-    let isFirst  = true;
 
-    const plainLen = (s) => s.replace(/\*{1,3}/g, '').replace(/_{1,3}/g, '').replace(/`/g, '').length;
+    // Detect CJK characters. Covered blocks:
+    //   U+3000–U+9FFF  CJK Symbols & Punctuation, Hiragana, Katakana, Bopomofo,
+    //                  Hangul Compatibility Jamo, and CJK Unified Ideographs
+    //   U+AC00–U+D7AF  Hangul Syllables
+    //   U+F900–U+FAFF  CJK Compatibility Ideographs
+    //   U+FF01–U+FFEE  Halfwidth and Fullwidth Forms
+    const isCJKChar = (ch) =>
+      /[\u3000-\u9fff\uac00-\ud7af\uf900-\ufaff\uff01-\uffee]/.test(ch);
 
-    for (const word of words) {
-      if (line.length === 0) {
-        line = word;
-      } else if (plainLen(line) + 1 + plainLen(word) <= maxChars) {
-        line += ' ' + word;
+    // Tokenise: CJK characters become individual tokens (no spaces between them
+    // in the source); Latin words are split on whitespace.
+    const tokens = [];
+    let word = '';
+    for (const ch of content) {
+      if (isCJKChar(ch)) {
+        if (word) { tokens.push({ text: word, cjk: false }); word = ''; }
+        tokens.push({ text: ch, cjk: true });
+      } else if (ch === ' ' || ch === '\t') {
+        if (word) { tokens.push({ text: word, cjk: false }); word = ''; }
       } else {
-        output.push({ text: (isFirst ? prefix : indent) + line, type, headingLevel });
-        isFirst = false;
-        line = word;
+        word += ch;
       }
     }
-    if (line.length > 0 || isFirst) {
+    if (word) tokens.push({ text: word, cjk: false });
+
+    if (tokens.length === 0) {
+      output.push({ text: prefix, type, headingLevel });
+      return;
+    }
+
+    // Set the base font for measureText so wrapping measurements are accurate.
+    // (Each segment in _drawFormattedLine resets the font to apply bold/italic.)
+    if (ctx) ctx.font = fontSize + 'px sans-serif';
+    const plainLen = (s) =>
+      s.replace(/\*{1,3}/g, '').replace(/_{1,3}/g, '').replace(/`/g, '').length;
+
+    let line            = '';
+    let lineEndsWithCJK = false;
+    let isFirst         = true;
+
+    for (const token of tokens) {
+      // CJK tokens are joined without a space; Latin tokens get a space separator.
+      const sep      = (!line || token.cjk || lineEndsWithCJK) ? '' : ' ';
+      const testLine = line + sep + token.text;
+      const testFull = (isFirst ? prefix : indent) + testLine;
+
+      const fits = ctx
+        ? ctx.measureText(testFull).width <= maxWidth
+        : plainLen(testLine) <= maxWidth;
+
+      if (fits || !line) {
+        line            = testLine;
+        lineEndsWithCJK = token.cjk;
+      } else {
+        output.push({ text: (isFirst ? prefix : indent) + line, type, headingLevel });
+        isFirst         = false;
+        line            = token.text;
+        lineEndsWithCJK = token.cjk;
+      }
+    }
+
+    if (line || isFirst) {
       output.push({ text: (isFirst ? prefix : indent) + line, type, headingLevel });
     }
   },
@@ -815,8 +882,6 @@ AFRAME.registerComponent('vr-controller-input', {
   /**
    * Draw a single text line onto the canvas with inline markdown formatting.
    * Supports **bold**, *italic*, ***bold-italic***, and `code`.
-   * Each character is stroked (dark outline/border) then filled (white) for
-   * readability against any panorama background.
    */
   _drawFormattedLine(ctx, text, x, y, fontSize, lineIsBold) {
     // Parse inline markdown into segments:
@@ -841,12 +906,6 @@ AFRAME.registerComponent('vr-controller-input', {
       const weight = (seg.b || lineIsBold) ? 'bold ' : '';
       const style  = seg.i ? 'italic ' : '';
       ctx.font = style + weight + fontSize + 'px sans-serif';
-
-      // Outline (border around text).
-      ctx.strokeStyle = '#000000';
-      ctx.lineWidth   = 4;
-      ctx.lineJoin    = 'round';
-      ctx.strokeText(seg.t, curX, y);
 
       // Fill.
       ctx.fillStyle = '#ffffff';

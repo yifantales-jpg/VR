@@ -810,17 +810,18 @@ AFRAME.registerComponent('vr-controller-input', {
    * readability against any panorama background.
    */
   _drawFormattedLine(ctx, text, x, y, fontSize, lineIsBold) {
-    // Parse inline markdown segments.
+    // Parse inline markdown into segments:
+    //   ***bold-italic*** | **bold** | *italic* | `code`
     const segments = [];
     const re = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`)/g;
     let last = 0;
     let m;
     while ((m = re.exec(text)) !== null) {
       if (m.index > last) segments.push({ t: text.slice(last, m.index), b: lineIsBold, i: false });
-      if      (m[2]) segments.push({ t: m[2], b: true,  i: true  });
-      else if (m[3]) segments.push({ t: m[3], b: true,  i: false });
-      else if (m[4]) segments.push({ t: m[4], b: false, i: true  });
-      else if (m[5]) segments.push({ t: m[5], b: false, i: false });
+      if      (m[2]) segments.push({ t: m[2], b: true,  i: true  });  // ***bold-italic***
+      else if (m[3]) segments.push({ t: m[3], b: true,  i: false });  // **bold**
+      else if (m[4]) segments.push({ t: m[4], b: false, i: true  });  // *italic*
+      else if (m[5]) segments.push({ t: m[5], b: false, i: false });  // `code`
       last = m.index + m[0].length;
     }
     if (last < text.length) segments.push({ t: text.slice(last), b: lineIsBold, i: false });
@@ -830,7 +831,7 @@ AFRAME.registerComponent('vr-controller-input', {
     for (const seg of segments) {
       const weight = (seg.b || lineIsBold) ? 'bold ' : '';
       const style  = seg.i ? 'italic ' : '';
-      ctx.font = `${style}${weight}${fontSize}px sans-serif`;
+      ctx.font = style + weight + fontSize + 'px sans-serif';
 
       // Outline (border around text).
       ctx.strokeStyle = '#000000';

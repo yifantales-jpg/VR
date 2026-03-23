@@ -244,8 +244,8 @@ AFRAME.registerComponent('loading-overlay', {
  *                                    of the panorama centred on the gaze direction).
  *                                    Releasing the stick fades the frame out.
  *   - Right thumbstick left / right→ also rotates (same as left).
- *   - Y button (left hand)         → request Meta AI facts about the current view;
- *                                    tap again to dismiss.
+ *   - B button (right hand)        → request AI facts about the current view;
+ *                                    tap again to dismiss (copies text to clipboard).
  *   - X button (left hand)         → exit VR.
  *
  * Attach to the #camera-rig entity: <a-entity vr-controller-input …>
@@ -289,7 +289,7 @@ AFRAME.registerComponent('vr-controller-input', {
 
     this._onThumbstick = this._onThumbstick.bind(this);
     this._onXButton    = this._onXButton.bind(this);
-    this._onYButton    = this._onYButton.bind(this);
+    this._onBButton    = this._onBButton.bind(this);
 
     this._leftHand  = document.getElementById('left-hand');
     this._rightHand = document.getElementById('right-hand');
@@ -297,10 +297,10 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._leftHand) {
       this._leftHand.addEventListener('thumbstickmoved', this._onThumbstick);
       this._leftHand.addEventListener('xbuttondown',    this._onXButton);
-      this._leftHand.addEventListener('ybuttondown',    this._onYButton);
     }
     if (this._rightHand) {
       this._rightHand.addEventListener('thumbstickmoved', this._onThumbstick);
+      this._rightHand.addEventListener('bbuttondown',    this._onBButton);
     }
 
     this._setupZoomFrame();
@@ -355,7 +355,7 @@ AFRAME.registerComponent('vr-controller-input', {
   },
 
   /**
-   * Create a floating text panel that shows Meta AI facts about the current
+   * Create a floating text panel that shows AI facts about the current
    * view.  Also parented to the camera entity so it tracks head movement.
    */
   _setupFactsFrame() {
@@ -366,24 +366,27 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsFrameEl.setAttribute('position', '0 -0.12 -0.7');
     this._factsFrameEl.setAttribute('visible', false);
 
-    this._factsPanelEl = document.createElement('a-plane');
-    this._factsPanelEl.setAttribute('width',    '0.60');
-    this._factsPanelEl.setAttribute('height',   '0.40');
-    this._factsPanelEl.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.4; transparent: true');
-    this._factsFrameEl.appendChild(this._factsPanelEl);
-
     this._factsTextEl = document.createElement('a-text');
     this._factsTextEl.setAttribute('value',      '');
     this._factsTextEl.setAttribute('align',      'left');
     this._factsTextEl.setAttribute('anchor',     'center');
     this._factsTextEl.setAttribute('baseline',   'top');
-    this._factsTextEl.setAttribute('color',      '#e8e8e8');
-    this._factsTextEl.setAttribute('outline-color', '#4fc3f7');
-    this._factsTextEl.setAttribute('outline-width', '0.02');
+    this._factsTextEl.setAttribute('color',      '#ffffff');
+    this._factsTextEl.setAttribute('outline-color', '#000000');
+    this._factsTextEl.setAttribute('outline-width', '0.08');
     this._factsTextEl.setAttribute('position',   '0 0.17 0.002');
     this._factsTextEl.setAttribute('width',      '0.55');
     this._factsTextEl.setAttribute('wrap-count', '55');
     this._factsFrameEl.appendChild(this._factsTextEl);
+
+    // Loading bar – a thin horizontal plane pulsing while AI facts load.
+    this._loadingBarEl = document.createElement('a-plane');
+    this._loadingBarEl.setAttribute('width',    '0.30');
+    this._loadingBarEl.setAttribute('height',   '0.008');
+    this._loadingBarEl.setAttribute('position', '0 0 0.002');
+    this._loadingBarEl.setAttribute('material', 'shader: flat; color: #4fc3f7; opacity: 0.9; transparent: true');
+    this._loadingBarEl.setAttribute('visible',  false);
+    this._factsFrameEl.appendChild(this._loadingBarEl);
 
     camera.appendChild(this._factsFrameEl);
   },
@@ -399,10 +402,10 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._leftHand) {
       this._leftHand.removeEventListener('thumbstickmoved', this._onThumbstick);
       this._leftHand.removeEventListener('xbuttondown',    this._onXButton);
-      this._leftHand.removeEventListener('ybuttondown',    this._onYButton);
     }
     if (this._rightHand) {
       this._rightHand.removeEventListener('thumbstickmoved', this._onThumbstick);
+      this._rightHand.removeEventListener('bbuttondown',    this._onBButton);
     }
     if (this._zoomFrameEl && this._zoomFrameEl.parentNode) {
       this._zoomFrameEl.parentNode.removeChild(this._zoomFrameEl);
@@ -559,6 +562,13 @@ AFRAME.registerComponent('vr-controller-input', {
     const dstH = this._zoomCanvas.height;
     ctx.clearRect(0, 0, dstW, dstH);
 
+    // Flip horizontally: the equirectangular texture is mapped to the inside
+    // of the sky sphere, so the flat-image crop is left–right mirrored
+    // relative to what the user sees in VR.
+    ctx.save();
+    ctx.translate(dstW, 0);
+    ctx.scale(-1, 1);
+
     // Handle horizontal wrap at the ±180° seam.
     if (srcX < 0) {
       const wW = -srcX;
@@ -579,24 +589,32 @@ AFRAME.registerComponent('vr-controller-input', {
         0, 0, dstW, dstH);
     }
 
+    ctx.restore();
+
     if (this._zoomTexture) this._zoomTexture.needsUpdate = true;
   },
 
-  // ── Y button: Meta AI facts window ──────────────────────────────────────
+  // ── B button (right hand): AI facts window ───────────────────────────────
 
-  _onYButton() {
+  _onBButton() {
     if (this._factsActive) {
+      this._copyFactsToClipboard();
       this._hideFactsFrame();
       return;
     }
     this._factsActive = true;
-    this._showFactsFrame('Asking Meta AI…');
+    this._showFactsFrame();
     this._fetchAIFacts();
   },
 
   _showFactsFrame(text) {
     if (!this._factsFrameEl) return;
-    if (text) this._updateFactsText(text);
+    if (text) {
+      this._updateFactsText(text);
+      this._hideLoadingBar();
+    } else {
+      this._showLoadingBar();
+    }
     // Remove any lingering hide/show animations before restarting so the
     // show animation always fires even when the panel was previously closed.
     this._factsFrameEl.removeAttribute('animation__hide');
@@ -611,11 +629,35 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsActive = false;
     this._factsLines      = [];
     this._factsScrollLine = 0;
+    this._hideLoadingBar();
     if (!this._factsFrameEl) return;
     this._factsFrameEl.setAttribute('animation__hide',
       'property: scale; from: 1 1 1; to: 0.01 0.01 0.01; dur: 200; easing: easeInBack');
     const frameEl = this._factsFrameEl;
     setTimeout(() => { if (frameEl) frameEl.setAttribute('visible', false); }, 220);
+  },
+
+  _showLoadingBar() {
+    if (!this._loadingBarEl) return;
+    this._loadingBarEl.setAttribute('visible', true);
+    this._loadingBarEl.setAttribute('animation__pulse',
+      'property: scale; from: 0.3 1 1; to: 1 1 1; dur: 800; loop: true; dir: alternate; easing: easeInOutQuad');
+  },
+
+  _hideLoadingBar() {
+    if (!this._loadingBarEl) return;
+    this._loadingBarEl.removeAttribute('animation__pulse');
+    this._loadingBarEl.setAttribute('visible', false);
+  },
+
+  /**
+   * Copy the current facts text to the system clipboard, if available.
+   */
+  _copyFactsToClipboard() {
+    const text = this._factsLines.join('\n');
+    if (text && typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
   },
 
   /**
@@ -703,17 +745,22 @@ AFRAME.registerComponent('vr-controller-input', {
       if (!res.ok) {
         return res.json().catch(() => ({})).then((err) => {
           if (this._factsActive) {
+            this._hideLoadingBar();
             this._updateFactsText(err.error || 'Could not get facts. Try again.');
           }
         });
       }
       return res.json().then((data) => {
         if (this._factsActive) {
+          this._hideLoadingBar();
           this._updateFactsText(data.facts || 'No facts available.');
         }
       });
     }).catch(() => {
-      if (this._factsActive) this._updateFactsText('Network error. Check connection.');
+      if (this._factsActive) {
+        this._hideLoadingBar();
+        this._updateFactsText('Network error. Check connection.');
+      }
     });
   },
 

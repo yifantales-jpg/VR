@@ -559,6 +559,14 @@ AFRAME.registerComponent('vr-controller-input', {
     const dstH = this._zoomCanvas.height;
     ctx.clearRect(0, 0, dstW, dstH);
 
+    // Flip the crop horizontally so it matches the inside-sphere view.
+    // The equirectangular texture is mirrored when rendered on the inside of
+    // the sky sphere; applying the same mirror here keeps the zoom window
+    // consistent with the surrounding panorama.
+    ctx.save();
+    ctx.translate(dstW, 0);
+    ctx.scale(-1, 1);
+
     // Handle horizontal wrap at the ±180° seam.
     if (srcX < 0) {
       const wW = -srcX;
@@ -578,6 +586,8 @@ AFRAME.registerComponent('vr-controller-input', {
       ctx.drawImage(this._panoramaCanvas, srcX, srcY, srcW, srcH,
         0, 0, dstW, dstH);
     }
+
+    ctx.restore();
 
     if (this._zoomTexture) this._zoomTexture.needsUpdate = true;
   },

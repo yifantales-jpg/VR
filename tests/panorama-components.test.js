@@ -352,6 +352,10 @@ describe('_updateZoomCanvas UV mapping', () => {
     const zoomCtx    = {
       clearRect: jest.fn(),
       drawImage: jest.fn((...args) => drawCalls.push(args)),
+      save:      jest.fn(),
+      restore:   jest.fn(),
+      translate: jest.fn(),
+      scale:     jest.fn(),
     };
     const zoomCanvas = {
       width: 512, height: 512,
@@ -416,6 +420,23 @@ describe('_updateZoomCanvas UV mapping', () => {
 
     expect(zoomCtx.clearRect).not.toHaveBeenCalled();
     expect(zoomCtx.drawImage).not.toHaveBeenCalled();
+  });
+
+  test('horizontally flips the crop to match inside-sphere rendering', () => {
+    const { inst, zoomCtx } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
+    inst._updateZoomCanvas();
+
+    expect(zoomCtx.save).toHaveBeenCalled();
+    expect(zoomCtx.translate).toHaveBeenCalledWith(512, 0);
+    expect(zoomCtx.scale).toHaveBeenCalledWith(-1, 1);
+    expect(zoomCtx.restore).toHaveBeenCalled();
+
+    // save/translate/scale must come before drawImage, restore after.
+    const order = zoomCtx.save.mock.invocationCallOrder[0];
+    const drawOrder = zoomCtx.drawImage.mock.invocationCallOrder[0];
+    const restoreOrder = zoomCtx.restore.mock.invocationCallOrder[0];
+    expect(order).toBeLessThan(drawOrder);
+    expect(drawOrder).toBeLessThan(restoreOrder);
   });
 
   test('uses the entity object3D (same parent as zoom frame) for gaze direction', () => {

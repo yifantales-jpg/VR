@@ -444,9 +444,13 @@ describe('vr-controller-input floating windows', () => {
     const comp = registeredComponents['vr-controller-input'];
     const instance = Object.create(comp.Component.prototype);
     instance.data = { turnStep: 45, turnCooldown: 350, deadzone: 0.5 };
-    instance._lastTurn    = 0;
-    instance._zoomActive  = false;
-    instance._factsActive = false;
+    instance._lastTurn        = 0;
+    instance._zoomActive      = false;
+    instance._factsActive     = false;
+    instance._factsLines      = [];
+    instance._factsScrollLine = 0;
+    instance._factsMaxVisible = 12;
+    instance._lastFactsScroll = 0;
     // Use plain objects as hand references so identity checks work.
     instance._leftHand  = { _id: 'left-hand' };
     instance._rightHand = { _id: 'right-hand' };
@@ -531,9 +535,12 @@ describe('vr-controller-input floating windows', () => {
     expect(calls[visibleIdx][2]).toBe(true);
   });
 
-  test('_updateFactsText normalizes whitespace into a single paragraph', () => {
+  test('_updateFactsText normalizes whitespace and renders visible window', () => {
     const inst = buildInstance();
     inst._factsTextEl = { setAttribute: jest.fn() };
+    inst._factsLines = [];
+    inst._factsScrollLine = 0;
+    inst._factsMaxVisible = 12;
 
     const cases = [
       {
@@ -567,6 +574,9 @@ describe('vr-controller-input floating windows', () => {
   test('_updateFactsText preserves non-string inputs', () => {
     const inst = buildInstance();
     inst._factsTextEl = { setAttribute: jest.fn() };
+    inst._factsLines = [];
+    inst._factsScrollLine = 0;
+    inst._factsMaxVisible = 12;
 
     inst._updateFactsText(42);
 
@@ -596,21 +606,90 @@ describe('vr-controller-input floating windows', () => {
     inst._setupFactsFrame();
 
     expect(inst._factsFrameEl.attributes.position).toBe('0 0 -0.7');
-    expect(inst._factsPanelEl.attributes.width).toBe('0.95');
-    expect(inst._factsPanelEl.attributes.height).toBe('0.8');
+    expect(inst._factsPanelEl.attributes.width).toBe('0.60');
+    expect(inst._factsPanelEl.attributes.height).toBe('0.40');
     expect(inst._factsPanelEl.attributes.material)
       .toBe('shader: flat; color: #111111; opacity: 0.4; transparent: true');
     expect(inst._factsFrameEl.appendChild).toHaveBeenCalledWith(inst._factsPanelEl);
     expect(inst._factsTextEl.attributes.align).toBe('left');
     expect(inst._factsTextEl.attributes.anchor).toBe('center');
     expect(inst._factsTextEl.attributes.baseline).toBe('top');
-    expect(inst._factsTextEl.attributes.position).toBe('0 0.35 0.002');
-    expect(inst._factsTextEl.attributes.width).toBe('0.85');
-    expect(inst._factsTextEl.attributes['wrap-count']).toBe('40');
+    expect(inst._factsTextEl.attributes.position).toBe('0 0.17 0.002');
+    expect(inst._factsTextEl.attributes.width).toBe('0.55');
+    expect(inst._factsTextEl.attributes['wrap-count']).toBe('55');
     expect(inst._factsTextEl.attributes.scale).toBeUndefined();
     expect(inst._cameraEl.appendChild).toHaveBeenCalledWith(inst._factsFrameEl);
 
     global.document = originalDocument;
+  });
+
+  // ── Scrolling ───────────────────────────────────────────────────────────
+
+  test('_wrapText breaks long text into lines of at most maxChars', () => {
+    const comp = registeredComponents['vr-controller-input'];
+    const inst = Object.create(comp.Component.prototype);
+
+    const lines = inst._wrapText('one two three four five six', 10);
+    expect(lines).toEqual(['one two', 'three four', 'five six']);
+  });
+
+  test('_scrollFacts scrolls down and clamps at end', () => {
+    const inst = buildInstance();
+    inst._factsTextEl = { setAttribute: jest.fn() };
+    // 15 lines total, 12 visible → max start = 3
+    inst._factsLines = Array.from({ length: 15 }, (_, i) => `Line ${i}`);
+    inst._factsScrollLine = 0;
+
+    inst._scrollFacts(3);
+    expect(inst._factsScrollLine).toBe(3);
+
+    inst._scrollFacts(3); // would go to 6, clamp to 3
+    expect(inst._factsScrollLine).toBe(3);
+  });
+
+  test('_scrollFacts scrolls up and clamps at beginning', () => {
+    const inst = buildInstance();
+    inst._factsTextEl = { setAttribute: jest.fn() };
+    inst._factsLines = Array.from({ length: 15 }, (_, i) => `Line ${i}`);
+    inst._factsScrollLine = 3;
+
+    inst._scrollFacts(-3);
+    expect(inst._factsScrollLine).toBe(0);
+
+    inst._scrollFacts(-3); // already at 0, stays 0
+    expect(inst._factsScrollLine).toBe(0);
+  });
+
+  test('_onThumbstick: left stick up/down scrolls facts when panel is active', () => {
+    const inst = buildInstance();
+    inst._factsActive = true;
+    inst._scrollFacts = jest.fn();
+    inst._showZoomFrame = jest.fn();
+
+    inst._onThumbstick({ detail: { x: 0, y: 0.9 }, target: inst._leftHand });
+    expect(inst._scrollFacts).toHaveBeenCalledWith(3);
+
+    inst._scrollFacts.mockClear();
+    inst._lastFactsScroll = 0; // reset cooldown
+    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
+    expect(inst._scrollFacts).toHaveBeenCalledWith(-3);
+
+    // Zoom frame should NOT be triggered
+    expect(inst._showZoomFrame).not.toHaveBeenCalled();
+  });
+
+  test('_hideFactsFrame resets scroll state', () => {
+    const inst = buildInstance();
+    inst._factsLines = ['a', 'b', 'c'];
+    inst._factsScrollLine = 2;
+    inst._factsActive = true;
+    inst._factsFrameEl = null;
+
+    inst._hideFactsFrame();
+
+    expect(inst._factsLines).toEqual([]);
+    expect(inst._factsScrollLine).toBe(0);
+    expect(inst._factsActive).toBe(false);
   });
 
   // ── Thumbstick up → magnification frame ──────────────────────────────────

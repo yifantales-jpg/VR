@@ -974,11 +974,13 @@ AFRAME.registerComponent('vr-controller-input', {
       let   buffer  = '';
 
       try {
-        while (true) {
-          const { done, value } = await reader.read();
+        let done = false;
+        while (!done) {
+          const result = await reader.read();
+          done = result.done;
           if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
+          buffer += decoder.decode(result.value, { stream: true });
 
           // SSE events are separated by a blank line (\n\n).
           const eventBlocks = buffer.split('\n\n');

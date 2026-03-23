@@ -262,6 +262,12 @@ AFRAME.registerComponent('vr-controller-input', {
     this._zoomActive  = false;
     this._factsActive = false;
 
+    // Facts-panel scroll state.
+    this._factsLines       = [];   // all wrapped lines of the current AI response
+    this._factsScrollLine  = 0;    // index of the first visible line
+    this._factsMaxVisible  = 12;   // how many lines fit in the panel
+    this._lastFactsScroll  = 0;    // cooldown timestamp for scroll steps
+
     this._panoramaCanvas = document.getElementById('panorama-canvas');
 
     // Off-screen canvas painted with a zoomed crop of the panorama.
@@ -271,12 +277,15 @@ AFRAME.registerComponent('vr-controller-input', {
     this._zoomTexture       = null;
 
     // Cache frequently-accessed DOM elements to avoid per-frame queries.
-    this._cameraEl = this.el.querySelector('[camera]');
-    this._skyEl    = document.getElementById('panorama-sky');
+    this._cameraEl   = this.el.querySelector('[camera]');
+    this._skyEl      = document.getElementById('panorama-sky');
+    this._gazeCursor = document.getElementById('gaze-cursor');
 
     // Pre-allocate THREE objects reused every tick to avoid per-frame GC pressure.
     this._worldDir  = new THREE.Vector3();
     this._worldQuat = new THREE.Quaternion();
+    this._camWorldPos    = new THREE.Vector3();
+    this._cursorWorldPos = new THREE.Vector3();
 
     this._onThumbstick = this._onThumbstick.bind(this);
     this._onXButton    = this._onXButton.bind(this);
@@ -358,8 +367,8 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsFrameEl.setAttribute('visible', false);
 
     this._factsPanelEl = document.createElement('a-plane');
-    this._factsPanelEl.setAttribute('width',    '0.95');
-    this._factsPanelEl.setAttribute('height',   '0.8');
+    this._factsPanelEl.setAttribute('width',    '0.60');
+    this._factsPanelEl.setAttribute('height',   '0.40');
     this._factsPanelEl.setAttribute('material', 'shader: flat; color: #111111; opacity: 0.4; transparent: true');
     this._factsFrameEl.appendChild(this._factsPanelEl);
 
@@ -371,9 +380,9 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsTextEl.setAttribute('color',      '#e8e8e8');
     this._factsTextEl.setAttribute('outline-color', '#4fc3f7');
     this._factsTextEl.setAttribute('outline-width', '0.02');
-    this._factsTextEl.setAttribute('position',   '0 0.35 0.002');
-    this._factsTextEl.setAttribute('width',      '0.85');
-    this._factsTextEl.setAttribute('wrap-count', '40');
+    this._factsTextEl.setAttribute('position',   '0 0.17 0.002');
+    this._factsTextEl.setAttribute('width',      '0.55');
+    this._factsTextEl.setAttribute('wrap-count', '55');
     this._factsFrameEl.appendChild(this._factsTextEl);
 
     camera.appendChild(this._factsFrameEl);
@@ -419,6 +428,21 @@ AFRAME.registerComponent('vr-controller-input', {
         z: rotation.z,
       });
       this._lastTurn = now;
+    }
+
+    // ── Up / Down on left stick while facts panel is open → scroll ────────
+    if (evt.target === this._leftHand && this._factsActive) {
+      if (Math.abs(y) >= dz && now - this._lastFactsScroll >= this.data.turnCooldown) {
+        if (y < -dz) {
+          // Stick up → scroll text up (show earlier lines)
+          this._scrollFacts(-3);
+        } else {
+          // Stick down → scroll text down (show later lines)
+          this._scrollFacts(3);
+        }
+        this._lastFactsScroll = now;
+      }
+      return; // don't toggle zoom while facts panel is open
     }
 
     // ── Up → magnification frame (left controller only) ───────────────────
@@ -474,10 +498,23 @@ AFRAME.registerComponent('vr-controller-input', {
     const cameraObj = camera.object3D;
     if (!cameraObj) return;
 
-    // Camera world-space look direction (pre-allocated vectors reused each tick).
-    this._worldDir.set(0, 0, -1);
-    this._worldDir.applyQuaternion(cameraObj.getWorldQuaternion(this._worldQuat));
-    const worldDir = this._worldDir;
+    // Use the gaze-cursor world position to compute the actual look direction.
+    // The cursor sits at (0,0,-0.75) in camera-local space; its world position
+    // reflects the full WebXR head-tracking transform, so the crop stays
+    // aligned with the true centre of the user's view.
+    let worldDir;
+    const cursor = this._gazeCursor && this._gazeCursor.object3D;
+    if (cursor && typeof cursor.getWorldPosition === 'function') {
+      cursor.getWorldPosition(this._cursorWorldPos);
+      cameraObj.getWorldPosition(this._camWorldPos);
+      this._worldDir.copy(this._cursorWorldPos).sub(this._camWorldPos).normalize();
+      worldDir = this._worldDir;
+    } else {
+      // Fallback: derive direction from camera quaternion.
+      this._worldDir.set(0, 0, -1);
+      this._worldDir.applyQuaternion(cameraObj.getWorldQuaternion(this._worldQuat));
+      worldDir = this._worldDir;
+    }
 
     // Read the sky's actual Object3D Y-rotation (radians) so the crop uses
     // the exact same transform that Three.js applies when rendering the sphere.
@@ -572,6 +609,8 @@ AFRAME.registerComponent('vr-controller-input', {
 
   _hideFactsFrame() {
     this._factsActive = false;
+    this._factsLines      = [];
+    this._factsScrollLine = 0;
     if (!this._factsFrameEl) return;
     this._factsFrameEl.setAttribute('animation__hide',
       'property: scale; from: 1 1 1; to: 0.01 0.01 0.01; dur: 200; easing: easeInBack');
@@ -579,12 +618,61 @@ AFRAME.registerComponent('vr-controller-input', {
     setTimeout(() => { if (frameEl) frameEl.setAttribute('visible', false); }, 220);
   },
 
+  /**
+   * Word-wrap `text` into lines of at most `maxChars` characters.
+   * Splits on whitespace boundaries; words longer than maxChars are kept intact
+   * on their own line.
+   */
+  _wrapText(text, maxChars) {
+    const words = text.split(/\s+/);
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      if (!word) continue;
+      if (line.length === 0) {
+        line = word;
+      } else if (line.length + 1 + word.length <= maxChars) {
+        line += ' ' + word;
+      } else {
+        lines.push(line);
+        line = word;
+      }
+    }
+    if (line.length > 0) lines.push(line);
+    return lines;
+  },
+
   _updateFactsText(text) {
     if (!this._factsTextEl) return;
-    const normalized = typeof text === 'string'
-      ? text.replace(/\s+/g, ' ').trim()
-      : text;
-    this._factsTextEl.setAttribute('value', normalized);
+    if (typeof text !== 'string') {
+      this._factsTextEl.setAttribute('value', text);
+      return;
+    }
+    const clean = text.replace(/\s+/g, ' ').trim();
+    this._factsLines = this._wrapText(clean, 55);
+    this._factsScrollLine = 0;
+    this._renderFactsWindow();
+  },
+
+  /**
+   * Render the currently visible window of facts lines into the text element.
+   */
+  _renderFactsWindow() {
+    if (!this._factsTextEl) return;
+    const start = this._factsScrollLine;
+    const end   = Math.min(start + this._factsMaxVisible, this._factsLines.length);
+    const visible = this._factsLines.slice(start, end).join('\n');
+    this._factsTextEl.setAttribute('value', visible);
+  },
+
+  /**
+   * Scroll the facts panel by `delta` lines (positive = down, negative = up).
+   */
+  _scrollFacts(delta) {
+    if (this._factsLines.length === 0) return;
+    const maxStart = Math.max(0, this._factsLines.length - this._factsMaxVisible);
+    this._factsScrollLine = Math.max(0, Math.min(maxStart, this._factsScrollLine + delta));
+    this._renderFactsWindow();
   },
 
   /**

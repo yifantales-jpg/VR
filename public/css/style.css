@@ -170,6 +170,40 @@ html, body {
 
 .secondary-btn:hover { background: rgba(79,195,247,0.12); }
 
+/* ── Language selector ──────────────────────────────────────────────────── */
+
+#language-row {
+  flex: 0 0 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+#ai-language {
+  padding: 4px 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  font-size: 0.85rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+#ai-language:focus {
+  border-color: var(--accent);
+}
+
+#ai-language option {
+  background: var(--bg-dark);
+  color: var(--text);
+}
+
 /* ── Status bar ────────────────────────────────────────────────────────── */
 
 #status-bar {

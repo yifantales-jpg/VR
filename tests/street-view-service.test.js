@@ -54,6 +54,12 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
     expect(result).toEqual({ panoId: 'ABC123XYZ' });
   });
 
+  it('decodes percent-encoded panoId from data parameter', () => {
+    const url = 'https://www.google.com/maps/@48.8584,2.2945,3a,75y,90h,90t/data=!3m6!1e1!3m4!1sF%3A-DsZwXRcGh!2e0!7i16384!8i8192';
+    const result = StreetViewService.parseGoogleMapsUrl(url);
+    expect(result).toEqual({ panoId: 'F:-DsZwXRcGh' });
+  });
+
   it('extracts panoId from panoid query parameter', () => {
     const url = 'https://maps.google.com/maps?q=48.858,2.294&layer=c&panoid=MYPANOID';
     const result = StreetViewService.parseGoogleMapsUrl(url);

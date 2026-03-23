@@ -714,10 +714,13 @@ AFRAME.registerComponent('vr-controller-input', {
     const locTextEl   = document.getElementById('location-text');
     const description = locTextEl ? (locTextEl.getAttribute('value') || '') : '';
 
+    const langEl   = document.getElementById('ai-language');
+    const language = langEl ? langEl.value : 'English';
+
     fetch('/api/ai-facts', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ image: snapshot, description }),
+      body:    JSON.stringify({ image: snapshot, description, language }),
     }).then((res) => {
       if (!res.ok) {
         return res.json().catch(() => ({})).then((err) => {

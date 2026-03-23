@@ -148,7 +148,7 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2.4rem;
+  font-size: 1.8rem;
   line-height: 1;
   border: 1px solid var(--accent);
   border-radius: 50%;

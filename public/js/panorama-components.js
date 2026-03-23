@@ -363,7 +363,7 @@ AFRAME.registerComponent('vr-controller-input', {
     if (!camera) return;
 
     this._factsFrameEl = document.createElement('a-entity');
-    this._factsFrameEl.setAttribute('position', '0 0 -0.7');
+    this._factsFrameEl.setAttribute('position', '0 -0.12 -0.7');
     this._factsFrameEl.setAttribute('visible', false);
 
     this._factsPanelEl = document.createElement('a-plane');
@@ -559,14 +559,6 @@ AFRAME.registerComponent('vr-controller-input', {
     const dstH = this._zoomCanvas.height;
     ctx.clearRect(0, 0, dstW, dstH);
 
-    // Flip the crop horizontally so it matches the inside-sphere view.
-    // The equirectangular texture is mirrored when rendered on the inside of
-    // the sky sphere; applying the same mirror here keeps the zoom window
-    // consistent with the surrounding panorama.
-    ctx.save();
-    ctx.translate(dstW, 0);
-    ctx.scale(-1, 1);
-
     // Handle horizontal wrap at the ±180° seam.
     if (srcX < 0) {
       const wW = -srcX;
@@ -586,8 +578,6 @@ AFRAME.registerComponent('vr-controller-input', {
       ctx.drawImage(this._panoramaCanvas, srcX, srcY, srcW, srcH,
         0, 0, dstW, dstH);
     }
-
-    ctx.restore();
 
     if (this._zoomTexture) this._zoomTexture.needsUpdate = true;
   },
@@ -630,25 +620,34 @@ AFRAME.registerComponent('vr-controller-input', {
 
   /**
    * Word-wrap `text` into lines of at most `maxChars` characters.
-   * Splits on whitespace boundaries; words longer than maxChars are kept intact
-   * on their own line.
+   * Preserves explicit line breaks (\n) and blank lines from the original
+   * text.  Within each paragraph, splits on whitespace boundaries; words
+   * longer than maxChars are kept intact on their own line.
    */
   _wrapText(text, maxChars) {
-    const words = text.split(/\s+/);
+    const paragraphs = text.split('\n');
     const lines = [];
-    let line = '';
-    for (const word of words) {
-      if (!word) continue;
-      if (line.length === 0) {
-        line = word;
-      } else if (line.length + 1 + word.length <= maxChars) {
-        line += ' ' + word;
-      } else {
-        lines.push(line);
-        line = word;
+    for (const para of paragraphs) {
+      const trimmed = para.trim();
+      if (trimmed.length === 0) {
+        lines.push('');
+        continue;
       }
+      const words = trimmed.split(/[ \t]+/);
+      let line = '';
+      for (const word of words) {
+        if (!word) continue;
+        if (line.length === 0) {
+          line = word;
+        } else if (line.length + 1 + word.length <= maxChars) {
+          line += ' ' + word;
+        } else {
+          lines.push(line);
+          line = word;
+        }
+      }
+      if (line.length > 0) lines.push(line);
     }
-    if (line.length > 0) lines.push(line);
     return lines;
   },
 
@@ -658,8 +657,7 @@ AFRAME.registerComponent('vr-controller-input', {
       this._factsTextEl.setAttribute('value', text);
       return;
     }
-    const clean = text.replace(/\s+/g, ' ').trim();
-    this._factsLines = this._wrapText(clean, 55);
+    this._factsLines = this._wrapText(text.trim(), 55);
     this._factsScrollLine = 0;
     this._renderFactsWindow();
   },

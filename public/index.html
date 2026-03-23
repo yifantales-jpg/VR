@@ -23,10 +23,14 @@
         placeholder="Panorama URL"
         autocomplete="off"
       />
-      <button id="load-btn">load</button>
+      <button id="load-btn" aria-label="Load panorama">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true">
+          <path d="M20.5 7h-17C2.12 7 1 8.12 1 9.5v5C1 15.88 2.12 17 3.5 17h3.08c.46 0 .89-.24 1.13-.63L9 14.5h6l1.29 1.87c.24.39.67.63 1.13.63H20.5c1.38 0 2.5-1.12 2.5-2.5v-5C23 8.12 21.88 7 20.5 7zm-11 5c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm7 0c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z"/>
+        </svg>
+      </button>
     </div>
 
-    <p id="vr-hint">Joystick to turn head, B to ask AI to interpret what you are seeing, X to quit immersive mode.</p>
+    <p id="vr-hint">Joystick left/right to turn, up/down to zoom in/out; B to ask AI to interpret what you are seeing; X to quit immersive mode.</p>
 
     <div id="language-row">
       <label for="ai-language">AI should respond in:</label>

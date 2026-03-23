@@ -422,21 +422,15 @@ describe('_updateZoomCanvas UV mapping', () => {
     expect(zoomCtx.drawImage).not.toHaveBeenCalled();
   });
 
-  test('horizontally flips the crop to match inside-sphere rendering', () => {
+  test('does not horizontally flip the crop', () => {
     const { inst, zoomCtx } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
     inst._updateZoomCanvas();
 
-    expect(zoomCtx.save).toHaveBeenCalled();
-    expect(zoomCtx.translate).toHaveBeenCalledWith(512, 0);
-    expect(zoomCtx.scale).toHaveBeenCalledWith(-1, 1);
-    expect(zoomCtx.restore).toHaveBeenCalled();
-
-    // save/translate/scale must come before drawImage, restore after.
-    const order = zoomCtx.save.mock.invocationCallOrder[0];
-    const drawOrder = zoomCtx.drawImage.mock.invocationCallOrder[0];
-    const restoreOrder = zoomCtx.restore.mock.invocationCallOrder[0];
-    expect(order).toBeLessThan(drawOrder);
-    expect(drawOrder).toBeLessThan(restoreOrder);
+    expect(zoomCtx.save).not.toHaveBeenCalled();
+    expect(zoomCtx.translate).not.toHaveBeenCalled();
+    expect(zoomCtx.scale).not.toHaveBeenCalled();
+    expect(zoomCtx.restore).not.toHaveBeenCalled();
+    expect(zoomCtx.drawImage).toHaveBeenCalled();
   });
 
   test('uses the entity object3D (same parent as zoom frame) for gaze direction', () => {
@@ -556,7 +550,7 @@ describe('vr-controller-input floating windows', () => {
     expect(calls[visibleIdx][2]).toBe(true);
   });
 
-  test('_updateFactsText normalizes whitespace and renders visible window', () => {
+  test('_updateFactsText preserves line breaks and renders visible window', () => {
     const inst = buildInstance();
     inst._factsTextEl = { setAttribute: jest.fn() };
     inst._factsLines = [];
@@ -566,11 +560,11 @@ describe('vr-controller-input floating windows', () => {
     const cases = [
       {
         input: 'First sentence.\nSecond sentence.',
-        expected: 'First sentence. Second sentence.',
+        expected: 'First sentence.\nSecond sentence.',
       },
       {
         input: 'First sentence.\n\n  Second sentence.',
-        expected: 'First sentence. Second sentence.',
+        expected: 'First sentence.\n\nSecond sentence.',
       },
       {
         input: 'First  sentence.  Second  sentence.',
@@ -626,7 +620,7 @@ describe('vr-controller-input floating windows', () => {
 
     inst._setupFactsFrame();
 
-    expect(inst._factsFrameEl.attributes.position).toBe('0 0 -0.7');
+    expect(inst._factsFrameEl.attributes.position).toBe('0 -0.12 -0.7');
     expect(inst._factsPanelEl.attributes.width).toBe('0.60');
     expect(inst._factsPanelEl.attributes.height).toBe('0.40');
     expect(inst._factsPanelEl.attributes.material)

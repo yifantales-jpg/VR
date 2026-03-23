@@ -185,6 +185,48 @@ describe('GET /api/resolve', () => {
   });
 });
 
+describe('GET /api/geocode', () => {
+  it('returns 400 when lat is missing', async () => {
+    const res = await request(app).get('/api/geocode?lng=2.3522');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('returns 400 when lng is missing', async () => {
+    const res = await request(app).get('/api/geocode?lat=48.8566');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBeDefined();
+  });
+
+  it('returns 400 for out-of-range latitude', async () => {
+    const res = await request(app).get('/api/geocode?lat=91&lng=2.35');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for out-of-range longitude', async () => {
+    const res = await request(app).get('/api/geocode?lat=48.85&lng=200');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 for null-island coordinates (0,0)', async () => {
+    const res = await request(app).get('/api/geocode?lat=0&lng=0');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/null-island/i);
+  });
+
+  it('returns 400 for non-numeric coordinates', async () => {
+    const res = await request(app).get('/api/geocode?lat=abc&lng=2.35');
+    expect(res.status).toBe(400);
+  });
+
+  it('attempts upstream geocoding for valid coordinates (network may fail in test env)', async () => {
+    const res = await request(app).get('/api/geocode?lat=48.8566&lng=2.3522');
+    // In a test environment without real network access the upstream call will
+    // fail; we only verify it passed server-side validation (not a 400).
+    expect(res.status).not.toBe(400);
+  });
+});
+
 describe('POST /api/ai-facts', () => {
   const savedKey = process.env.GEMINI_API_KEY;
 

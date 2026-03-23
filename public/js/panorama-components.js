@@ -125,6 +125,10 @@ AFRAME.registerComponent('nav-arrow', {
  */
 AFRAME.registerComponent('street-view-scene', {
   init() {
+    // Sequence counter for reverse-geocoding requests: incremented with each
+    // panorama load so that stale responses from a previous pano are discarded.
+    this._geocodeSeq = 0;
+
     // Listen for navigation events from arrows.
     this.el.addEventListener('navigate', (evt) => {
       const panoId = evt.detail && evt.detail.panoId;
@@ -179,13 +183,30 @@ AFRAME.registerComponent('street-view-scene', {
     // Update the in-VR location label and store coordinates for AI requests.
     const label = this.el.querySelector('#location-text');
     if (label) {
-      if (panoData.description) {
-        label.setAttribute('value', panoData.description);
-      }
+      // Always update the description so stale text from a previous panorama
+      // is cleared when the new one has no description.
+      label.setAttribute('value', panoData.description || '');
+
       if (panoData.latLng && typeof panoData.latLng.lat === 'number' && typeof panoData.latLng.lng === 'number' &&
           (panoData.latLng.lat !== 0 || panoData.latLng.lng !== 0)) {
         label.dataset.lat = String(panoData.latLng.lat);
         label.dataset.lng = String(panoData.latLng.lng);
+
+        // Reverse-geocode coordinates to a human-readable address so the AI
+        // receives a precise street/city name rather than just raw GPS numbers.
+        // The sequence counter guards against stale responses when the user
+        // navigates to a new panorama before geocoding completes.
+        this._geocodeSeq = (this._geocodeSeq || 0) + 1;
+        const seq = this._geocodeSeq;
+        const { lat, lng } = panoData.latLng;
+        fetch(`/api/geocode?lat=${lat}&lng=${lng}`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.address && this._geocodeSeq === seq) {
+              label.setAttribute('value', data.address);
+            }
+          })
+          .catch(() => {}); // geocoding is best-effort; fail silently
       } else {
         delete label.dataset.lat;
         delete label.dataset.lng;
@@ -271,12 +292,12 @@ AFRAME.registerComponent('vr-controller-input', {
 
     // Stepped zoom state: a canvas plane in front of the camera shows a
     // cropped portion of the panorama texture — smaller crop = more zoom.
-    this._zoomSteps    = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42, 0.35];
-    this._zoomLevel    = 0;          // index into _zoomSteps (0 = no zoom)
-    this._lastZoom     = 0;          // cooldown timestamp for zoom steps
-    this._zoomCanvas   = null;       // off-screen canvas for zoom texture
-    this._zoomTexture  = null;       // THREE.CanvasTexture wrapping _zoomCanvas
-    this._zoomPlaneEl  = null;       // a-plane covering the camera FOV
+    this._zoomSteps      = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42, 0.35];
+    this._zoomLevel      = 0;        // index into _zoomSteps (0 = no zoom)
+    this._zoomAxisNeutral = true;    // true when y-axis was last in the deadzone
+    this._zoomCanvas     = null;     // off-screen canvas for zoom texture
+    this._zoomTexture    = null;     // THREE.CanvasTexture wrapping _zoomCanvas
+    this._zoomPlaneEl    = null;     // a-plane covering the camera FOV
 
     // Facts-panel scroll state.
     this._factsLines       = [];   // all wrapped lines of the current AI response
@@ -433,19 +454,12 @@ AFRAME.registerComponent('vr-controller-input', {
     const cameraObj = camera.object3D;
     if (!cameraObj) return;
 
-    // Use the gaze-cursor world position to compute the look direction.
-    let worldDir;
-    const cursor = this._gazeCursor && this._gazeCursor.object3D;
-    if (cursor && typeof cursor.getWorldPosition === 'function') {
-      cursor.getWorldPosition(this._cursorWorldPos);
-      cameraObj.getWorldPosition(this._camWorldPos);
-      this._worldDir.copy(this._cursorWorldPos).sub(this._camWorldPos).normalize();
-      worldDir = this._worldDir;
-    } else {
-      this._worldDir.set(0, 0, -1);
-      this._worldDir.applyQuaternion(cameraObj.getWorldQuaternion(this._worldQuat));
-      worldDir = this._worldDir;
-    }
+    // Derive the camera look direction from its world quaternion.
+    // This is the most reliable method during tick() updates since the
+    // camera's world transform is always current with the WebXR head pose.
+    this._worldDir.set(0, 0, -1);
+    this._worldDir.applyQuaternion(cameraObj.getWorldQuaternion(this._worldQuat));
+    const worldDir = this._worldDir;
 
     let skyYRad = 0;
     if (this._skyEl && this._skyEl.object3D) {
@@ -563,15 +577,19 @@ AFRAME.registerComponent('vr-controller-input', {
     }
 
     // ── Up / Down → stepped zoom (both controllers) ──────────────────────
-    if (Math.abs(y) >= dz && now - this._lastZoom >= this.data.turnCooldown) {
+    // Edge-triggered: require the stick to return to the deadzone between steps
+    // so each physical push of the thumbstick advances exactly one zoom level.
+    if (Math.abs(y) < dz) {
+      this._zoomAxisNeutral = true;
+    } else if (this._zoomAxisNeutral) {
+      this._zoomAxisNeutral = false;
       if (y < -dz) {
         // Stick up → step closer
         this._stepCloser();
       } else {
-        // Stick down → reset to default distance
-        this._resetZoom();
+        // Stick down → step farther (one level at a time)
+        this._stepFarther();
       }
-      this._lastZoom = now;
     }
   },
 
@@ -583,7 +601,15 @@ AFRAME.registerComponent('vr-controller-input', {
     }
   },
 
-  /** Reset to the default (no zoom) view. */
+  /** Zoom out one step toward the default (no zoom) view. */
+  _stepFarther() {
+    if (this._zoomLevel > 0) {
+      this._zoomLevel--;
+      this._applyZoom();
+    }
+  },
+
+  /** Reset to the default (no zoom) view immediately. */
   _resetZoom() {
     if (this._zoomLevel !== 0) {
       this._zoomLevel = 0;
@@ -1098,92 +1124,19 @@ AFRAME.registerComponent('vr-controller-input', {
       ? { lat, lng }
       : null;
 
-    let accumulated        = '';
-    let firstChunkReceived = false;
-
     fetch('/api/ai-facts', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ image: snapshot, description, language, coordinates }),
     }).then(async (res) => {
-      if (!res.ok) {
-        // Validation / auth errors still return JSON before headers switch to SSE.
-        const err = await res.json().catch(() => ({}));
-        if (this._factsActive) {
-          this._hideLoadingBar();
-          this._updateFactsText(err.error || 'Could not get facts. Try again.');
-        }
-        return;
-      }
-
-      // Read the SSE stream incrementally.
-      const reader  = res.body.getReader();
-      const decoder = new TextDecoder();
-      let   buffer  = '';
-
-      /**
-       * Parse lines from `text`, updating `accumulated` / `firstChunkReceived`.
-       * Returns true when the [DONE] sentinel is encountered.
-       */
-      const processLines = (text) => {
-        for (const line of text.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const payload = line.slice(6).trim();
-          if (payload === '[DONE]') return true;
-          try {
-            const chunk = JSON.parse(payload);
-            if (chunk.error) {
-              if (this._factsActive) {
-                this._hideLoadingBar();
-                this._updateFactsText(chunk.error);
-              }
-              return true; // stop processing on error
-            }
-            if (chunk.text) {
-              accumulated += chunk.text;
-              if (!firstChunkReceived) {
-                firstChunkReceived = true;
-                this._hideLoadingBar();
-              }
-              if (this._factsActive) {
-                this._updateFactsText(accumulated);
-              }
-            }
-          } catch { /* ignore malformed JSON */ }
-        }
-        return false;
-      };
-
-      try {
-        let done = false;
-        while (!done) {
-          const result = await reader.read();
-          done = result.done;
-          if (done) break;
-
-          buffer += decoder.decode(result.value, { stream: true });
-
-          // SSE events are separated by a blank line (\n\n).
-          const eventBlocks = buffer.split('\n\n');
-          buffer = eventBlocks.pop(); // keep the incomplete trailing block
-
-          let streamDone = false;
-          for (const block of eventBlocks) {
-            if (processLines(block)) { streamDone = true; break; }
-          }
-          if (streamDone) { done = true; break; }
-        }
-
-        // Flush any data buffered since the last \n\n (e.g. if the connection
-        // closed before the server sent a trailing double-newline).
-        if (buffer) processLines(buffer);
-      } finally {
-        reader.releaseLock();
-      }
-
-      if (!firstChunkReceived && this._factsActive) {
+      const data = await res.json().catch(() => ({}));
+      if (this._factsActive) {
         this._hideLoadingBar();
-        this._updateFactsText('No facts available.');
+        if (!res.ok || data.error) {
+          this._updateFactsText(data.error || 'Could not get facts. Try again.');
+        } else {
+          this._updateFactsText(data.text || 'No facts available.');
+        }
       }
     }).catch(() => {
       if (this._factsActive) {

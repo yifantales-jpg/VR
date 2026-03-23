@@ -370,6 +370,64 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
   }
 });
 
+/* ─── Reverse geocoding proxy (Nominatim / OpenStreetMap) ───────────────── */
+
+/**
+ * GET /api/geocode?lat=…&lng=…
+ *
+ * Converts GPS coordinates to a human-readable address using the Nominatim
+ * OpenStreetMap reverse-geocoding service.  Used to give the AI a precise
+ * street-level address for the current panorama location.
+ *
+ * Results are cached for 1 hour — the same coordinates always map to the
+ * same address.
+ *
+ * OpenStreetMap / Nominatim data is © OpenStreetMap contributors.
+ * Usage policy: https://operations.osmfoundation.org/policies/nominatim/
+ *
+ * Response (application/json):
+ *   { address: "Rue de Rivoli, 1st arrondissement, Paris, France" }
+ */
+app.get('/api/geocode', apiLimiter, async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+
+  if (isNaN(lat) || isNaN(lng) ||
+      lat < -90 || lat > 90 || lng < -180 || lng > 180 ||
+      (lat === 0 && lng === 0)) {
+    return res.status(400).json({ error: 'Valid lat and lng parameters are required (not null-island 0,0).' });
+  }
+
+  const nominatimUrl =
+    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}` +
+    `&format=json&zoom=18&addressdetails=0&accept-language=en`;
+
+  try {
+    const upstream = await fetch(nominatimUrl, {
+      headers: {
+        'User-Agent':      'VRStreetView/1.0 (educational VR panorama app)',
+        'Accept-Language': 'en',
+      },
+      timeout: 5000,
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: 'Geocoding service unavailable.' });
+    }
+
+    const data    = await upstream.json();
+    const address = data.display_name || '';
+
+    // Cache responses: coordinates → address is essentially immutable.
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.json({ address });
+
+  } catch (err) {
+    console.error('[geocode]', err.message);
+    return res.status(502).json({ error: 'Geocoding failed.' });
+  }
+});
+
 /* ─── Google Gemini AI facts endpoint ───────────────────────────────────── */
 
 /**
@@ -377,7 +435,7 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
  *
  * Accepts a base64-encoded JPEG snapshot of the current panorama view (as a
  * data URL) and an optional location description.  Forwards the image to the
- * Google Gemini API and streams back facts about the scene as Server-Sent Events.
+ * Google Gemini API and returns facts about the scene as a JSON response.
  *
  * Requires the GEMINI_API_KEY environment variable (Google AI Studio API key).
  * To obtain a key visit https://aistudio.google.com/app/apikey.
@@ -386,10 +444,8 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
  * Request body (JSON, max 4 MB):
  *   { image: "data:image/jpeg;base64,…", description: "Location name", language: "English" }
  *
- * Response (text/event-stream — Server-Sent Events):
- *   data: {"text":"incremental text chunk"}
- *   …
- *   data: [DONE]
+ * Response (application/json):
+ *   { text: "You are looking at…" }
  */
 app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -424,17 +480,8 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
   const langHint = (language && language !== 'English') ? ` Respond entirely in ${language}.` : '';
   const prompt = `Describe the Street View panorama${locationHint}.${geoInstr} Begin your response with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.${langHint}`;
 
-  // Use the streaming endpoint so text is returned incrementally.
-  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse';
-
-  // Switch to SSE response now that all validation is done (no more JSON errors after this).
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  /** Write a single SSE event payload and flush. */
-  const sendEvent = (payload) => res.write(`data: ${payload}\n\n`);
+  // Use the non-streaming generateContent endpoint for a simple JSON response.
+  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
   try {
     const upstream = await fetch(geminiUrl, {
@@ -459,79 +506,27 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
     if (!upstream.ok) {
       const body = await upstream.text();
       console.error('[ai-facts] upstream error:', upstream.status, body);
-      sendEvent(JSON.stringify({ error: 'AI service returned an error.' }));
-      sendEvent('[DONE]');
-      res.end();
-      return;
+      return res.status(502).json({ error: 'AI service returned an error.' });
     }
 
-    // Gemini SSE stream: each chunk may contain one or more `data:` events.
-    // Buffer partial lines across chunks and emit complete events to the client.
-    let buffer = '';
+    const data  = await upstream.json();
+    const parts = data &&
+      data.candidates &&
+      data.candidates[0] &&
+      data.candidates[0].content &&
+      data.candidates[0].content.parts;
 
-    /** Forward any complete Gemini SSE events found in `text` to the client. */
-    const processBuffer = (text) => {
-      for (const line of text.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        try {
-          const data  = JSON.parse(payload);
-          const items = data &&
-            data.candidates &&
-            data.candidates[0] &&
-            data.candidates[0].content &&
-            data.candidates[0].content.parts;
-          if (Array.isArray(items)) {
-            // Filter out "thinking" parts (thought: true) returned by reasoning
-            // models like gemini-2.5-flash, then forward non-empty text chunks.
-            const responseText = items
-              .filter((p) => p && !p.thought)
-              .map((p) => p.text)
-              .filter(Boolean)
-              .join('');
-            if (responseText) sendEvent(JSON.stringify({ text: responseText }));
-          }
-        } catch { /* ignore malformed JSON */ }
-      }
-    };
+    // Filter out "thinking" parts (thought: true) returned by reasoning
+    // models like gemini-2.5-flash, then join non-empty text chunks.
+    const responseText = Array.isArray(parts)
+      ? parts.filter((p) => p && !p.thought).map((p) => p.text).filter(Boolean).join('')
+      : '';
 
-    upstream.body.on('data', (chunk) => {
-      buffer += chunk.toString();
-      // SSE events are separated by double newline.
-      const parts = buffer.split('\n\n');
-      buffer = parts.pop(); // last element may be incomplete – keep for next chunk
-
-      for (const part of parts) {
-        processBuffer(part);
-      }
-    });
-
-    upstream.body.on('end', () => {
-      // Flush any data buffered since the last double-newline.  The final
-      // Gemini chunk may arrive without a trailing \n\n before the stream
-      // closes, which would otherwise leave its text silently discarded.
-      if (buffer) {
-        processBuffer(buffer);
-        buffer = '';
-      }
-      sendEvent('[DONE]');
-      res.end();
-    });
-
-    upstream.body.on('error', (err) => {
-      console.error('[ai-facts] stream error:', err.message);
-      if (!res.writableEnded) {
-        sendEvent(JSON.stringify({ error: 'Stream error occurred.' }));
-        sendEvent('[DONE]');
-        res.end();
-      }
-    });
+    return res.json({ text: responseText || '' });
 
   } catch (err) {
     console.error('[ai-facts]', err.message);
-    sendEvent(JSON.stringify({ error: 'Failed to get AI response.' }));
-    sendEvent('[DONE]');
-    res.end();
+    return res.status(502).json({ error: 'Failed to get AI response.' });
   }
 });
 

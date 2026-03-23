@@ -62,6 +62,12 @@ class StreetViewService {
         const m = pathDataMatch[1].match(/!1s([^!]+)/);
         if (m && m[1]) {
           const panoId = decodeURIComponent(m[1]);
+          // Also capture lat/lng from the @ segment so it can be used as a
+          // coordinate hint in case the CBK metadata returns 0,0.
+          const atMatch = u.pathname.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+          const coordHint = atMatch
+            ? { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) }
+            : {};
           // User-contributed Photo Spheres embed a direct Google image URL in !6s.
           // When present, pass it through so the caller can skip the CBK tile proxy.
           const photoUrl = StreetViewService._extractGooglePhotoUrl(pathDataMatch[1]);
@@ -69,7 +75,7 @@ class StreetViewService {
             const dims = StreetViewService._extractPhotoDimensions(pathDataMatch[1]);
             return { panoId, photoUrl, ...dims };
           }
-          return { panoId };
+          return { panoId, ...coordHint };
         }
       }
 
@@ -79,12 +85,17 @@ class StreetViewService {
         const m = data.match(/!1s([^!]+)/);
         if (m && m[1]) {
           const panoId = decodeURIComponent(m[1]);
+          // Also try to extract coordinates from the @ path segment here too.
+          const atMatch = u.pathname.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+          const coordHint = atMatch
+            ? { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) }
+            : {};
           const photoUrl = StreetViewService._extractGooglePhotoUrl(data);
           if (photoUrl) {
             const dims = StreetViewService._extractPhotoDimensions(data);
             return { panoId, photoUrl, ...dims };
           }
-          return { panoId };
+          return { panoId, ...coordHint };
         }
       }
 
@@ -177,7 +188,19 @@ class StreetViewService {
     }
 
     const json = await response.json();
-    return this._normaliseCbkData(json);
+    const panoData = this._normaliseCbkData(json);
+
+    // Use URL-extracted coordinates as a fallback when CBK returns (0, 0),
+    // which happens for some panoramas that don't include location in metadata.
+    if (
+      typeof lat === 'number' && typeof lng === 'number' &&
+      !isNaN(lat) && !isNaN(lng) &&
+      panoData.latLng.lat === 0 && panoData.latLng.lng === 0
+    ) {
+      panoData.latLng = { lat, lng };
+    }
+
+    return panoData;
   }
 
   /**

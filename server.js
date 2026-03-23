@@ -377,7 +377,7 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
  *
  * Accepts a base64-encoded JPEG snapshot of the current panorama view (as a
  * data URL) and an optional location description.  Forwards the image to the
- * Google Gemini API and returns a short list of amazing facts about the scene.
+ * Google Gemini API and streams back facts about the scene as Server-Sent Events.
  *
  * Requires the GEMINI_API_KEY environment variable (Google AI Studio API key).
  * To obtain a key visit https://aistudio.google.com/app/apikey.
@@ -386,8 +386,10 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
  * Request body (JSON, max 4 MB):
  *   { image: "data:image/jpeg;base64,…", description: "Location name", language: "English" }
  *
- * Response (JSON):
- *   { facts: "…interesting facts…" }
+ * Response (text/event-stream — Server-Sent Events):
+ *   data: {"text":"incremental text chunk"}
+ *   …
+ *   data: [DONE]
  */
 app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -414,14 +416,25 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
   if (coordinates && typeof coordinates === 'object') {
     const { lat, lng } = coordinates;
     if (typeof lat === 'number' && typeof lng === 'number' &&
-        lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 &&
+        (lat !== 0 || lng !== 0)) {
       geoInstr = ` The exact GPS coordinates are ${lat.toFixed(6)}, ${lng.toFixed(6)} — use these to precisely identify the location (street, neighbourhood, city, and country).`;
     }
   }
   const langHint = (language && language !== 'English') ? ` Respond entirely in ${language}.` : '';
   const prompt = `Describe the Street View panorama${locationHint}.${geoInstr} Begin your response with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.${langHint}`;
 
-  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  // Use the streaming endpoint so text is returned incrementally.
+  const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse';
+
+  // Switch to SSE response now that all validation is done (no more JSON errors after this).
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  /** Write a single SSE event payload and flush. */
+  const sendEvent = (payload) => res.write(`data: ${payload}\n\n`);
 
   try {
     const upstream = await fetch(geminiUrl, {
@@ -441,35 +454,72 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
         ],
         generationConfig: {},
       }),
-      timeout: 30000,
     });
 
     if (!upstream.ok) {
       const body = await upstream.text();
       console.error('[ai-facts] upstream error:', upstream.status, body);
-      return res.status(502).json({ error: 'AI service returned an error.' });
+      sendEvent(JSON.stringify({ error: 'AI service returned an error.' }));
+      sendEvent('[DONE]');
+      res.end();
+      return;
     }
 
-    const data  = await upstream.json();
-    const parts = data &&
-      data.candidates &&
-      data.candidates[0] &&
-      data.candidates[0].content &&
-      data.candidates[0].content.parts;
-    const facts = Array.isArray(parts)
-      // Filter out "thinking" parts (thought: true) returned by reasoning
-      // models like gemini-2.5-flash, then join the remaining text parts.
-      ? parts
-          .filter((part) => part && !part.thought)
-          .map((part) => part.text)
-          .filter(Boolean)
-          .join('')
-      : '';
-    res.json({ facts });
+    // Gemini SSE stream: each chunk may contain one or more `data:` events.
+    // Buffer partial lines across chunks and emit complete events to the client.
+    let buffer = '';
+
+    upstream.body.on('data', (chunk) => {
+      buffer += chunk.toString();
+      // SSE events are separated by double newline.
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop(); // last element may be incomplete – keep for next chunk
+
+      for (const part of parts) {
+        for (const line of part.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          try {
+            const data  = JSON.parse(payload);
+            const items = data &&
+              data.candidates &&
+              data.candidates[0] &&
+              data.candidates[0].content &&
+              data.candidates[0].content.parts;
+            if (Array.isArray(items)) {
+              // Filter out "thinking" parts (thought: true) returned by reasoning
+              // models like gemini-2.5-flash, then forward non-empty text chunks.
+              const text = items
+                .filter((p) => p && !p.thought)
+                .map((p) => p.text)
+                .filter(Boolean)
+                .join('');
+              if (text) sendEvent(JSON.stringify({ text }));
+            }
+          } catch { /* ignore malformed JSON */ }
+        }
+      }
+    });
+
+    upstream.body.on('end', () => {
+      sendEvent('[DONE]');
+      res.end();
+    });
+
+    upstream.body.on('error', (err) => {
+      console.error('[ai-facts] stream error:', err.message);
+      if (!res.writableEnded) {
+        sendEvent(JSON.stringify({ error: 'Stream error occurred.' }));
+        sendEvent('[DONE]');
+        res.end();
+      }
+    });
 
   } catch (err) {
     console.error('[ai-facts]', err.message);
-    res.status(502).json({ error: 'Failed to get AI response.' });
+    sendEvent(JSON.stringify({ error: 'Failed to get AI response.' }));
+    sendEvent('[DONE]');
+    res.end();
   }
 });
 

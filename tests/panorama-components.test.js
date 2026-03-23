@@ -422,14 +422,14 @@ describe('_updateZoomCanvas UV mapping', () => {
     expect(zoomCtx.drawImage).not.toHaveBeenCalled();
   });
 
-  test('does not horizontally flip the crop', () => {
+  test('horizontally flips the crop to match inside-sphere mirroring', () => {
     const { inst, zoomCtx } = buildZoomInstance(0, { x: 0, y: 0, z: -1 });
     inst._updateZoomCanvas();
 
-    expect(zoomCtx.save).not.toHaveBeenCalled();
-    expect(zoomCtx.translate).not.toHaveBeenCalled();
-    expect(zoomCtx.scale).not.toHaveBeenCalled();
-    expect(zoomCtx.restore).not.toHaveBeenCalled();
+    expect(zoomCtx.save).toHaveBeenCalled();
+    expect(zoomCtx.translate).toHaveBeenCalledWith(512, 0);
+    expect(zoomCtx.scale).toHaveBeenCalledWith(-1, 1);
+    expect(zoomCtx.restore).toHaveBeenCalled();
     expect(zoomCtx.drawImage).toHaveBeenCalled();
   });
 
@@ -472,27 +472,29 @@ describe('vr-controller-input floating windows', () => {
     return instance;
   }
 
-  // ── Y button ─────────────────────────────────────────────────────────────
+  // ── B button ─────────────────────────────────────────────────────────────
 
-  test('_onYButton: first press sets _factsActive and calls _showFactsFrame', () => {
+  test('_onBButton: first press sets _factsActive and calls _showFactsFrame without text', () => {
     const inst = buildInstance();
     inst._showFactsFrame = jest.fn();
     inst._fetchAIFacts   = jest.fn();
 
-    inst._onYButton();
+    inst._onBButton();
 
     expect(inst._factsActive).toBe(true);
-    expect(inst._showFactsFrame).toHaveBeenCalledWith('Asking Meta AI…');
+    expect(inst._showFactsFrame).toHaveBeenCalledWith();
     expect(inst._fetchAIFacts).toHaveBeenCalled();
   });
 
-  test('_onYButton: second press calls _hideFactsFrame and clears _factsActive', () => {
+  test('_onBButton: second press copies facts and calls _hideFactsFrame', () => {
     const inst = buildInstance();
-    inst._factsActive    = true;
-    inst._hideFactsFrame = jest.fn();
+    inst._factsActive         = true;
+    inst._hideFactsFrame      = jest.fn();
+    inst._copyFactsToClipboard = jest.fn();
 
-    inst._onYButton();
+    inst._onBButton();
 
+    expect(inst._copyFactsToClipboard).toHaveBeenCalled();
     expect(inst._hideFactsFrame).toHaveBeenCalled();
   });
 
@@ -534,6 +536,10 @@ describe('vr-controller-input floating windows', () => {
     const inst = buildInstance();
     const calls = [];
     inst._factsTextEl  = { setAttribute: jest.fn() };
+    inst._loadingBarEl = {
+      setAttribute:    jest.fn(),
+      removeAttribute: jest.fn(),
+    };
     inst._factsFrameEl = {
       removeAttribute: jest.fn((attr) => calls.push(['remove', attr])),
       setAttribute:    jest.fn((attr, val) => calls.push(['set', attr, val])),
@@ -548,6 +554,24 @@ describe('vr-controller-input floating windows', () => {
     expect(scaleIdx).toBeLessThan(visibleIdx);
     expect(calls[scaleIdx][2]).toBe('0.01 0.01 0.01');
     expect(calls[visibleIdx][2]).toBe(true);
+    // Loading bar should be hidden when text is provided.
+    expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('visible', false);
+  });
+
+  test('_showFactsFrame: shows loading bar when called without text', () => {
+    const inst = buildInstance();
+    inst._loadingBarEl = {
+      setAttribute:    jest.fn(),
+      removeAttribute: jest.fn(),
+    };
+    inst._factsFrameEl = {
+      removeAttribute: jest.fn(),
+      setAttribute:    jest.fn(),
+    };
+
+    inst._showFactsFrame();
+
+    expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('visible', true);
   });
 
   test('_updateFactsText preserves line breaks and renders visible window', () => {
@@ -598,7 +622,7 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._factsTextEl.setAttribute).toHaveBeenCalledWith('value', 42);
   });
 
-  test('_setupFactsFrame centers the facts panel and text', () => {
+  test('_setupFactsFrame creates text panel without background and with loading bar', () => {
     const comp = registeredComponents['vr-controller-input'];
     const inst = Object.create(comp.Component.prototype);
     inst._cameraEl = { appendChild: jest.fn() };
@@ -621,18 +645,23 @@ describe('vr-controller-input floating windows', () => {
     inst._setupFactsFrame();
 
     expect(inst._factsFrameEl.attributes.position).toBe('0 -0.12 -0.7');
-    expect(inst._factsPanelEl.attributes.width).toBe('0.60');
-    expect(inst._factsPanelEl.attributes.height).toBe('0.40');
-    expect(inst._factsPanelEl.attributes.material)
-      .toBe('shader: flat; color: #111111; opacity: 0.4; transparent: true');
-    expect(inst._factsFrameEl.appendChild).toHaveBeenCalledWith(inst._factsPanelEl);
+    // No background panel — text is rendered directly with outline border.
     expect(inst._factsTextEl.attributes.align).toBe('left');
     expect(inst._factsTextEl.attributes.anchor).toBe('center');
     expect(inst._factsTextEl.attributes.baseline).toBe('top');
+    expect(inst._factsTextEl.attributes.color).toBe('#ffffff');
+    expect(inst._factsTextEl.attributes['outline-color']).toBe('#000000');
+    expect(inst._factsTextEl.attributes['outline-width']).toBe('0.08');
     expect(inst._factsTextEl.attributes.position).toBe('0 0.17 0.002');
     expect(inst._factsTextEl.attributes.width).toBe('0.55');
     expect(inst._factsTextEl.attributes['wrap-count']).toBe('55');
     expect(inst._factsTextEl.attributes.scale).toBeUndefined();
+
+    // Loading bar is created.
+    expect(inst._loadingBarEl).toBeDefined();
+    expect(inst._loadingBarEl.tag).toBe('a-plane');
+    expect(inst._loadingBarEl.attributes.visible).toBe(false);
+
     expect(inst._cameraEl.appendChild).toHaveBeenCalledWith(inst._factsFrameEl);
 
     global.document = originalDocument;
@@ -693,18 +722,71 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._showZoomFrame).not.toHaveBeenCalled();
   });
 
-  test('_hideFactsFrame resets scroll state', () => {
+  test('_hideFactsFrame resets scroll state and hides loading bar', () => {
     const inst = buildInstance();
     inst._factsLines = ['a', 'b', 'c'];
     inst._factsScrollLine = 2;
     inst._factsActive = true;
     inst._factsFrameEl = null;
+    inst._loadingBarEl = null;
 
     inst._hideFactsFrame();
 
     expect(inst._factsLines).toEqual([]);
     expect(inst._factsScrollLine).toBe(0);
     expect(inst._factsActive).toBe(false);
+  });
+
+  // ── Loading bar ──────────────────────────────────────────────────────────
+
+  test('_showLoadingBar makes bar visible with pulse animation', () => {
+    const inst = buildInstance();
+    inst._loadingBarEl = {
+      setAttribute: jest.fn(),
+    };
+
+    inst._showLoadingBar();
+
+    expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('visible', true);
+    expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('animation__pulse',
+      expect.stringContaining('loop: true'));
+  });
+
+  test('_hideLoadingBar hides bar and removes animation', () => {
+    const inst = buildInstance();
+    inst._loadingBarEl = {
+      setAttribute:    jest.fn(),
+      removeAttribute: jest.fn(),
+    };
+
+    inst._hideLoadingBar();
+
+    expect(inst._loadingBarEl.removeAttribute).toHaveBeenCalledWith('animation__pulse');
+    expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('visible', false);
+  });
+
+  // ── Clipboard copy ───────────────────────────────────────────────────────
+
+  test('_copyFactsToClipboard writes joined lines to navigator.clipboard', () => {
+    const inst = buildInstance();
+    inst._factsLines = ['Line 1', 'Line 2', 'Line 3'];
+    const writeText = jest.fn(() => Promise.resolve());
+    global.navigator = { clipboard: { writeText } };
+
+    inst._copyFactsToClipboard();
+
+    expect(writeText).toHaveBeenCalledWith('Line 1\nLine 2\nLine 3');
+    delete global.navigator;
+  });
+
+  test('_copyFactsToClipboard does nothing when clipboard API is unavailable', () => {
+    const inst = buildInstance();
+    inst._factsLines = ['Line 1'];
+    global.navigator = {};
+
+    // Should not throw
+    inst._copyFactsToClipboard();
+    delete global.navigator;
   });
 
   // ── Thumbstick up → magnification frame ──────────────────────────────────

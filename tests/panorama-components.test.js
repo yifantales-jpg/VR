@@ -470,6 +470,28 @@ describe('vr-controller-input floating windows', () => {
     // Use plain objects as hand references so identity checks work.
     instance._leftHand  = { _id: 'left-hand' };
     instance._rightHand = { _id: 'right-hand' };
+    // Mock canvas for facts rendering (returns the SAME context every call).
+    const mockCtx = {
+      clearRect: jest.fn(),
+      fillText: jest.fn(),
+      strokeText: jest.fn(),
+      measureText: jest.fn((t) => ({ width: t.length * 12 })),
+      beginPath: jest.fn(),
+      moveTo: jest.fn(),
+      lineTo: jest.fn(),
+      stroke: jest.fn(),
+      font: '',
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 0,
+      lineJoin: '',
+      textBaseline: '',
+    };
+    instance._factsCanvas = {
+      width: 1024, height: 512,
+      getContext: jest.fn(() => mockCtx),
+    };
+    instance._factsTexture = null;
     return instance;
   }
 
@@ -514,7 +536,6 @@ describe('vr-controller-input floating windows', () => {
   test('_showFactsFrame: removes old animations and resets scale before showing', () => {
     const inst = buildInstance();
     const calls = [];
-    inst._factsTextEl  = { setAttribute: jest.fn() };
     inst._loadingBarEl = {
       setAttribute:    jest.fn(),
       removeAttribute: jest.fn(),
@@ -537,9 +558,8 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('visible', false);
   });
 
-  test('_showFactsFrame: shows loading bar and clears text when called without text', () => {
+  test('_showFactsFrame: shows loading bar and clears canvas when called without text', () => {
     const inst = buildInstance();
-    inst._factsTextEl = { setAttribute: jest.fn() };
     inst._loadingBarEl = {
       setAttribute:    jest.fn(),
       removeAttribute: jest.fn(),
@@ -552,68 +572,40 @@ describe('vr-controller-input floating windows', () => {
     inst._showFactsFrame();
 
     expect(inst._loadingBarEl.setAttribute).toHaveBeenCalledWith('visible', true);
-    // Previous text should be cleared.
-    expect(inst._factsTextEl.setAttribute).toHaveBeenCalledWith('value', '');
+    // Canvas should be cleared.
+    const ctx = inst._factsCanvas.getContext();
+    expect(ctx.clearRect).toHaveBeenCalled();
     expect(inst._factsLines).toEqual([]);
     expect(inst._factsScrollLine).toBe(0);
   });
 
-  test('_updateFactsText strips markdown and renders visible window', () => {
+  test('_updateFactsText formats markdown and renders canvas', () => {
     const inst = buildInstance();
-    inst._factsTextEl = { setAttribute: jest.fn() };
-    inst._factsLines = [];
-    inst._factsScrollLine = 0;
-    inst._factsMaxVisible = 12;
 
-    const cases = [
-      {
-        input: 'First sentence.\nSecond sentence.',
-        expected: 'First sentence.\nSecond sentence.',
-      },
-      {
-        input: 'First sentence.\n\n  Second sentence.',
-        expected: 'First sentence.\n\nSecond sentence.',
-      },
-      {
-        input: 'First  sentence.  Second  sentence.',
-        expected: 'First sentence. Second sentence.',
-      },
-      {
-        input: 'Single sentence only.',
-        expected: 'Single sentence only.',
-      },
-      {
-        input: '',
-        expected: '',
-      },
-      {
-        input: '## Heading\n\n**bold** and *italic*',
-        expected: 'Heading\n\nbold and italic',
-      },
-    ];
+    inst._updateFactsText('## Heading\n\n**bold** and *italic*\n\n- item one\n- item two');
 
-    cases.forEach(({ input, expected }) => {
-      inst._updateFactsText(input);
-      expect(inst._factsTextEl.setAttribute).toHaveBeenLastCalledWith('value', expected);
-    });
+    // Should produce structured lines (heading, blank, text with inline md, blank, bullets).
+    expect(inst._factsLines.length).toBeGreaterThan(0);
+    expect(inst._factsLines[0].type).toBe('heading');
+    expect(inst._factsLines[0].text).toContain('Heading');
+    // Canvas should have been rendered (clearRect called).
+    const ctx = inst._factsCanvas.getContext();
+    expect(ctx.clearRect).toHaveBeenCalled();
   });
 
-  test('_updateFactsText preserves non-string inputs', () => {
+  test('_updateFactsText handles non-string input', () => {
     const inst = buildInstance();
-    inst._factsTextEl = { setAttribute: jest.fn() };
-    inst._factsLines = [];
-    inst._factsScrollLine = 0;
-    inst._factsMaxVisible = 12;
 
     inst._updateFactsText(42);
 
-    expect(inst._factsTextEl.setAttribute).toHaveBeenCalledWith('value', 42);
+    expect(inst._factsLines).toEqual([{ text: '42', type: 'text', headingLevel: 0 }]);
   });
 
-  test('_setupFactsFrame creates text panel with background and loading bar', () => {
+  test('_setupFactsFrame creates plane (no background) with loading bar', () => {
     const comp = registeredComponents['vr-controller-input'];
     const inst = Object.create(comp.Component.prototype);
     inst._cameraEl = { appendChild: jest.fn() };
+    inst._factsCanvas = { width: 1024, height: 512, getContext: jest.fn(() => ({})) };
 
     const originalDocument = global.document;
     const created = [];
@@ -634,22 +626,15 @@ describe('vr-controller-input floating windows', () => {
 
     expect(inst._factsFrameEl.attributes.position).toBe('0 -0.18 -0.7');
 
-    // Background panel is created.
-    expect(inst._factsBgEl).toBeDefined();
-    expect(inst._factsBgEl.tag).toBe('a-plane');
-    expect(inst._factsBgEl.attributes.width).toBe('0.62');
-    expect(inst._factsBgEl.attributes.height).toBe('0.42');
+    // No background panel — uses canvas-based text rendering on a plane.
+    expect(inst._factsBgEl).toBeUndefined();
 
-    // Text element attributes (no outline-color / outline-width).
-    expect(inst._factsTextEl.attributes.align).toBe('left');
-    expect(inst._factsTextEl.attributes.anchor).toBe('center');
-    expect(inst._factsTextEl.attributes.baseline).toBe('top');
-    expect(inst._factsTextEl.attributes.color).toBe('#ffffff');
-    expect(inst._factsTextEl.attributes.position).toBe('0 0.17 0.002');
-    expect(inst._factsTextEl.attributes.width).toBe('0.55');
-    expect(inst._factsTextEl.attributes['wrap-count']).toBe('55');
-    expect(inst._factsTextEl.attributes['outline-color']).toBeUndefined();
-    expect(inst._factsTextEl.attributes['outline-width']).toBeUndefined();
+    // Facts plane (a-plane) for canvas texture.
+    expect(inst._factsPlaneEl).toBeDefined();
+    expect(inst._factsPlaneEl.tag).toBe('a-plane');
+    expect(inst._factsPlaneEl.attributes.width).toBe('0.60');
+    expect(inst._factsPlaneEl.attributes.height).toBe('0.30');
+    expect(inst._factsPlaneEl.attributes.material).toContain('transparent: true');
 
     // Loading bar is created.
     expect(inst._loadingBarEl).toBeDefined();
@@ -663,39 +648,52 @@ describe('vr-controller-input floating windows', () => {
 
   // ── Scrolling ───────────────────────────────────────────────────────────
 
-  test('_wrapText breaks long text into lines of at most maxChars', () => {
+  test('_formatMarkdown parses headings, bullets, and text', () => {
     const comp = registeredComponents['vr-controller-input'];
     const inst = Object.create(comp.Component.prototype);
 
-    const lines = inst._wrapText('one two three four five six', 10);
-    expect(lines).toEqual(['one two', 'three four', 'five six']);
+    const lines = inst._formatMarkdown('## Title\n\nHello world\n\n- one\n- two', 50);
+    expect(lines[0]).toEqual(expect.objectContaining({ type: 'heading', headingLevel: 2 }));
+    expect(lines[0].text).toContain('Title');
+    // blank
+    expect(lines[1]).toEqual(expect.objectContaining({ type: 'blank' }));
+    // text
+    expect(lines[2]).toEqual(expect.objectContaining({ type: 'text' }));
+    expect(lines[2].text).toContain('Hello world');
+    // blank
+    expect(lines[3]).toEqual(expect.objectContaining({ type: 'blank' }));
+    // bullets
+    expect(lines[4]).toEqual(expect.objectContaining({ type: 'bullet' }));
+    expect(lines[4].text).toContain('• one');
+    expect(lines[5]).toEqual(expect.objectContaining({ type: 'bullet' }));
+    expect(lines[5].text).toContain('• two');
   });
 
-  test('_wrapText collapses consecutive blank lines into a single blank line for paragraph spacing', () => {
+  test('_formatMarkdown preserves inline **bold** and *italic* markers in text', () => {
     const comp = registeredComponents['vr-controller-input'];
     const inst = Object.create(comp.Component.prototype);
 
-    const lines = inst._wrapText('para one\n\n\npara two', 55);
-    expect(lines).toEqual(['para one', '', 'para two']);
+    const lines = inst._formatMarkdown('This is **bold** and *italic*', 50);
+    expect(lines[0].text).toContain('**bold**');
+    expect(lines[0].text).toContain('*italic*');
   });
 
-  test('_stripMarkdown removes heading markers, bold, italic, inline code, and links', () => {
+  test('_formatMarkdown collapses consecutive blank lines', () => {
     const comp = registeredComponents['vr-controller-input'];
     const inst = Object.create(comp.Component.prototype);
 
-    expect(inst._stripMarkdown('## Heading')).toBe('Heading');
-    expect(inst._stripMarkdown('**bold**')).toBe('bold');
-    expect(inst._stripMarkdown('*italic*')).toBe('italic');
-    expect(inst._stripMarkdown('`code`')).toBe('code');
-    expect(inst._stripMarkdown('[link](http://example.com)')).toBe('link');
-    expect(inst._stripMarkdown('- item')).toBe('• item');
+    const lines = inst._formatMarkdown('para one\n\n\npara two', 50);
+    expect(lines).toEqual([
+      expect.objectContaining({ text: 'para one', type: 'text' }),
+      expect.objectContaining({ type: 'blank' }),
+      expect.objectContaining({ text: 'para two', type: 'text' }),
+    ]);
   });
 
   test('_scrollFacts scrolls down and clamps at end', () => {
     const inst = buildInstance();
-    inst._factsTextEl = { setAttribute: jest.fn() };
     // 15 lines total, 12 visible → max start = 3
-    inst._factsLines = Array.from({ length: 15 }, (_, i) => `Line ${i}`);
+    inst._factsLines = Array.from({ length: 15 }, (_, i) => ({ text: `Line ${i}`, type: 'text', headingLevel: 0 }));
     inst._factsScrollLine = 0;
 
     inst._scrollFacts(3);
@@ -707,8 +705,7 @@ describe('vr-controller-input floating windows', () => {
 
   test('_scrollFacts scrolls up and clamps at beginning', () => {
     const inst = buildInstance();
-    inst._factsTextEl = { setAttribute: jest.fn() };
-    inst._factsLines = Array.from({ length: 15 }, (_, i) => `Line ${i}`);
+    inst._factsLines = Array.from({ length: 15 }, (_, i) => ({ text: `Line ${i}`, type: 'text', headingLevel: 0 }));
     inst._factsScrollLine = 3;
 
     inst._scrollFacts(-3);
@@ -787,7 +784,11 @@ describe('vr-controller-input floating windows', () => {
 
   test('_copyFactsToClipboard writes joined lines to navigator.clipboard', () => {
     const inst = buildInstance();
-    inst._factsLines = ['Line 1', 'Line 2', 'Line 3'];
+    inst._factsLines = [
+      { text: 'Line 1', type: 'text' },
+      { text: 'Line 2', type: 'text' },
+      { text: 'Line 3', type: 'text' },
+    ];
     const writeText = jest.fn(() => Promise.resolve());
     global.navigator = { clipboard: { writeText } };
 
@@ -799,7 +800,7 @@ describe('vr-controller-input floating windows', () => {
 
   test('_copyFactsToClipboard does nothing when clipboard API is unavailable', () => {
     const inst = buildInstance();
-    inst._factsLines = ['Line 1'];
+    inst._factsLines = [{ text: 'Line 1', type: 'text' }];
     global.navigator = {};
 
     // Should not throw

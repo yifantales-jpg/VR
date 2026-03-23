@@ -277,6 +277,12 @@ AFRAME.registerComponent('vr-controller-input', {
     this._snapshotCanvas.width  = 512;
     this._snapshotCanvas.height = 512;
 
+    // Off-screen canvas used for markdown-formatted facts text rendering.
+    this._factsCanvas        = document.createElement('canvas');
+    this._factsCanvas.width  = 1024;
+    this._factsCanvas.height = 512;
+    this._factsTexture       = null;
+
     // Cache frequently-accessed DOM elements to avoid per-frame queries.
     this._cameraEl   = this.el.querySelector('[camera]');
     this._skyEl      = document.getElementById('panorama-sky');
@@ -308,8 +314,9 @@ AFRAME.registerComponent('vr-controller-input', {
   },
 
   /**
-   * Create a floating text panel that shows AI facts about the current
-   * view.  Also parented to the camera entity so it tracks head movement.
+   * Create a floating panel that shows AI facts about the current view.
+   * Uses a canvas texture on an a-plane for markdown-formatted rendering.
+   * Also parented to the camera entity so it tracks head movement.
    */
   _setupFactsFrame() {
     const camera = this._cameraEl;
@@ -319,23 +326,14 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsFrameEl.setAttribute('position', '0 -0.18 -0.7');
     this._factsFrameEl.setAttribute('visible', false);
 
-    // Semi-transparent background panel for readability.
-    this._factsBgEl = document.createElement('a-plane');
-    this._factsBgEl.setAttribute('width',    '0.62');
-    this._factsBgEl.setAttribute('height',   '0.42');
-    this._factsBgEl.setAttribute('material', 'shader: flat; color: #000000; opacity: 0.55; transparent: true');
-    this._factsFrameEl.appendChild(this._factsBgEl);
-
-    this._factsTextEl = document.createElement('a-text');
-    this._factsTextEl.setAttribute('value',      '');
-    this._factsTextEl.setAttribute('align',      'left');
-    this._factsTextEl.setAttribute('anchor',     'center');
-    this._factsTextEl.setAttribute('baseline',   'top');
-    this._factsTextEl.setAttribute('color',      '#ffffff');
-    this._factsTextEl.setAttribute('position',   '0 0.17 0.002');
-    this._factsTextEl.setAttribute('width',      '0.55');
-    this._factsTextEl.setAttribute('wrap-count', '55');
-    this._factsFrameEl.appendChild(this._factsTextEl);
+    // A-plane displaying the markdown-formatted canvas texture.
+    // No background panel — text has its own outline border drawn on canvas.
+    this._factsPlaneEl = document.createElement('a-plane');
+    this._factsPlaneEl.setAttribute('width',    '0.60');
+    this._factsPlaneEl.setAttribute('height',   '0.30');
+    this._factsPlaneEl.setAttribute('position', '0 0 0.001');
+    this._factsPlaneEl.setAttribute('material', 'shader: flat; transparent: true; side: front');
+    this._factsFrameEl.appendChild(this._factsPlaneEl);
 
     // Loading bar – a thin horizontal plane pulsing while AI facts load.
     this._loadingBarEl = document.createElement('a-plane');
@@ -347,6 +345,24 @@ AFRAME.registerComponent('vr-controller-input', {
     this._factsFrameEl.appendChild(this._loadingBarEl);
 
     camera.appendChild(this._factsFrameEl);
+
+    // Attach the canvas as a Three.js texture once the mesh is ready.
+    if (this._factsPlaneEl.getObject3D) {
+      const self = this;
+      const applyTexture = () => {
+        const mesh = self._factsPlaneEl && self._factsPlaneEl.getObject3D &&
+                     self._factsPlaneEl.getObject3D('mesh');
+        if (!mesh) return;
+        self._factsTexture = new THREE.CanvasTexture(self._factsCanvas);
+        mesh.material.map = self._factsTexture;
+        mesh.material.needsUpdate = true;
+      };
+      if (this._factsPlaneEl.getObject3D('mesh')) {
+        applyTexture();
+      } else if (this._factsPlaneEl.addEventListener) {
+        this._factsPlaneEl.addEventListener('loaded', applyTexture, { once: true });
+      }
+    }
   },
 
   remove() {
@@ -554,9 +570,9 @@ AFRAME.registerComponent('vr-controller-input', {
       this._hideLoadingBar();
     } else {
       // Clear previous text when showing the loading bar.
-      if (this._factsTextEl) this._factsTextEl.setAttribute('value', '');
       this._factsLines      = [];
       this._factsScrollLine = 0;
+      this._clearFactsCanvas();
       this._showLoadingBar();
     }
     // Remove any lingering hide/show animations before restarting so the
@@ -598,98 +614,236 @@ AFRAME.registerComponent('vr-controller-input', {
    * Copy the current facts text to the system clipboard, if available.
    */
   _copyFactsToClipboard() {
-    const text = this._factsLines.join('\n');
+    const text = this._factsLines.map(l => (l && l.text != null) ? l.text : '').join('\n');
     if (text && typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(text).catch(() => {});
     }
   },
 
   /**
-   * Strip common Markdown formatting characters so the plain-text VR
-   * panel shows readable content.
+   * Clear the facts canvas (transparent) and update the texture.
    */
-  _stripMarkdown(text) {
-    return text
-      // Remove heading markers (e.g. "## Title" → "Title")
-      .replace(/^#{1,6}\s+/gm, '')
-      // Bold / italic markers: ***text***, **text**, *text*, ___text___, __text__, _text_
-      .replace(/\*{1,3}(.+?)\*{1,3}/g, '$1')
-      .replace(/_{1,3}(.+?)_{1,3}/g, '$1')
-      // Inline code: `code`
-      .replace(/`([^`]+)`/g, '$1')
-      // Unordered list markers: "- item" / "* item" → "• item"
-      .replace(/^[\s]*[-*]\s+/gm, '• ')
-      // Ordered list markers: "1. item" → "1. item" (keep as is)
-      // Links: [text](url) → text
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      // Images: ![alt](url) → alt
-      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
-      // Horizontal rules
-      .replace(/^[-*_]{3,}\s*$/gm, '');
+  _clearFactsCanvas() {
+    if (!this._factsCanvas) return;
+    const ctx = this._factsCanvas.getContext('2d');
+    if (ctx) ctx.clearRect(0, 0, this._factsCanvas.width, this._factsCanvas.height);
+    if (this._factsTexture) this._factsTexture.needsUpdate = true;
   },
 
   /**
-   * Word-wrap `text` into lines of at most `maxChars` characters.
-   * Preserves explicit line breaks (\n) from the original text.  Inserts a
-   * blank line between paragraphs (consecutive non-empty blocks separated
-   * by one or more empty lines) to give ~1 em visual spacing.
-   * Within each paragraph, splits on whitespace boundaries; words longer
-   * than maxChars are kept intact on their own line.
+   * Parse markdown text into structured, word-wrapped lines.
+   *
+   * Returns an array of line objects:
+   *   { text: string, type: 'heading'|'bullet'|'ordered'|'text'|'blank'|'rule',
+   *     headingLevel?: number }
+   *
+   * The `text` field retains inline markdown markers (**bold**, *italic*,
+   * `code`) so the canvas renderer can apply proper fonts.
+   *
+   * @param {string} text     – Raw markdown text.
+   * @param {number} maxChars – Max visible characters per line for wrapping.
+   * @returns {Array<Object>}
    */
-  _wrapText(text, maxChars) {
-    const paragraphs = text.split('\n');
-    const lines = [];
+  _formatMarkdown(text, maxChars) {
+    const srcLines = text.split('\n');
+    const result   = [];
     let lastWasBlank = false;
-    for (const para of paragraphs) {
-      const trimmed = para.trim();
+
+    for (const raw of srcLines) {
+      const trimmed = raw.trim();
+
+      // Blank line → paragraph spacing.
       if (trimmed.length === 0) {
-        // Collapse consecutive blank lines into one blank line for spacing.
-        if (!lastWasBlank && lines.length > 0) {
-          lines.push('');
+        if (!lastWasBlank && result.length > 0) {
+          result.push({ text: '', type: 'blank' });
         }
         lastWasBlank = true;
         continue;
       }
       lastWasBlank = false;
-      const words = trimmed.split(/[ \t]+/);
-      let line = '';
-      for (const word of words) {
-        if (!word) continue;
-        if (line.length === 0) {
-          line = word;
-        } else if (line.length + 1 + word.length <= maxChars) {
-          line += ' ' + word;
-        } else {
-          lines.push(line);
-          line = word;
-        }
+
+      // Horizontal rule.
+      if (/^[-*_]{3,}\s*$/.test(trimmed)) {
+        result.push({ text: '', type: 'rule' });
+        continue;
       }
-      if (line.length > 0) lines.push(line);
+
+      // Heading: ## Title
+      const headingMatch = trimmed.match(/^(#{1,6})\s+(.*)/);
+      if (headingMatch) {
+        const level   = headingMatch[1].length;
+        const content = this._cleanLinks(headingMatch[2]);
+        this._wrapLine(content, maxChars, 'heading', result, level);
+        continue;
+      }
+
+      // Unordered list: - item  or  * item
+      const ulMatch = trimmed.match(/^[-*]\s+(.*)/);
+      if (ulMatch) {
+        const content = this._cleanLinks(ulMatch[1]);
+        this._wrapLine(content, maxChars - 2, 'bullet', result, 0, '• ');
+        continue;
+      }
+
+      // Ordered list: 1. item
+      const olMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+      if (olMatch) {
+        const prefix  = olMatch[1] + '. ';
+        const content = this._cleanLinks(olMatch[2]);
+        this._wrapLine(content, maxChars - prefix.length, 'ordered', result, 0, prefix);
+        continue;
+      }
+
+      // Regular paragraph text.
+      const content = this._cleanLinks(trimmed);
+      this._wrapLine(content, maxChars, 'text', result);
     }
-    return lines;
+    return result;
+  },
+
+  /** Strip link / image markdown syntax but keep everything else. */
+  _cleanLinks(text) {
+    return text
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+  },
+
+  /**
+   * Word-wrap a single content line and push result objects into `output`.
+   * Inline markdown markers (**bold**, *italic*, `code`) are preserved in the
+   * text but excluded from the character-count measurement so wrapping is
+   * based on visible width.
+   */
+  _wrapLine(content, maxChars, type, output, headingLevel, prefix) {
+    headingLevel = headingLevel || 0;
+    prefix       = prefix || '';
+    const indent = ' '.repeat(prefix.length);
+    const words  = content.split(/[ \t]+/).filter(Boolean);
+    let line     = '';
+    let isFirst  = true;
+
+    const plainLen = (s) => s.replace(/\*{1,3}/g, '').replace(/_{1,3}/g, '').replace(/`/g, '').length;
+
+    for (const word of words) {
+      if (line.length === 0) {
+        line = word;
+      } else if (plainLen(line) + 1 + plainLen(word) <= maxChars) {
+        line += ' ' + word;
+      } else {
+        output.push({ text: (isFirst ? prefix : indent) + line, type, headingLevel });
+        isFirst = false;
+        line = word;
+      }
+    }
+    if (line.length > 0 || isFirst) {
+      output.push({ text: (isFirst ? prefix : indent) + line, type, headingLevel });
+    }
   },
 
   _updateFactsText(text) {
-    if (!this._factsTextEl) return;
+    if (!this._factsCanvas) return;
     if (typeof text !== 'string') {
-      this._factsTextEl.setAttribute('value', text);
+      this._factsLines = [{ text: String(text), type: 'text', headingLevel: 0 }];
+      this._factsScrollLine = 0;
+      this._renderFactsWindow();
       return;
     }
-    const cleaned = this._stripMarkdown(text.trim());
-    this._factsLines = this._wrapText(cleaned, 55);
+    this._factsLines = this._formatMarkdown(text.trim(), 50);
     this._factsScrollLine = 0;
     this._renderFactsWindow();
   },
 
   /**
-   * Render the currently visible window of facts lines into the text element.
+   * Render the currently visible window of formatted facts lines onto the
+   * canvas and flag the texture for an update.
    */
   _renderFactsWindow() {
-    if (!this._factsTextEl) return;
+    if (!this._factsCanvas) return;
+    const ctx = this._factsCanvas.getContext('2d');
+    if (!ctx) return;
+
+    const W = this._factsCanvas.width;
+    const H = this._factsCanvas.height;
+    const PAD_X = 32;
+    const PAD_Y = 10;
+    const LINE_H = 40;
+    const FONT_SIZE = 24;
+    const HEADING_FONT_SIZE = 28;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.textBaseline = 'top';
+
     const start = this._factsScrollLine;
     const end   = Math.min(start + this._factsMaxVisible, this._factsLines.length);
-    const visible = this._factsLines.slice(start, end).join('\n');
-    this._factsTextEl.setAttribute('value', visible);
+    let y = PAD_Y;
+
+    for (let i = start; i < end; i++) {
+      const line = this._factsLines[i];
+      if (!line) { y += LINE_H; continue; }
+
+      if (line.type === 'blank') { y += LINE_H * 0.6; continue; }
+
+      if (line.type === 'rule') {
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(PAD_X, y + LINE_H / 2);
+        ctx.lineTo(W - PAD_X, y + LINE_H / 2);
+        ctx.stroke();
+        y += LINE_H;
+        continue;
+      }
+
+      const fontSize  = line.type === 'heading' ? HEADING_FONT_SIZE : FONT_SIZE;
+      const lineIsBold = line.type === 'heading';
+      this._drawFormattedLine(ctx, line.text, PAD_X, y, fontSize, lineIsBold);
+      y += LINE_H;
+    }
+
+    if (this._factsTexture) this._factsTexture.needsUpdate = true;
+  },
+
+  /**
+   * Draw a single text line onto the canvas with inline markdown formatting.
+   * Supports **bold**, *italic*, ***bold-italic***, and `code`.
+   * Each character is stroked (dark outline/border) then filled (white) for
+   * readability against any panorama background.
+   */
+  _drawFormattedLine(ctx, text, x, y, fontSize, lineIsBold) {
+    // Parse inline markdown segments.
+    const segments = [];
+    const re = /(\*\*\*(.+?)\*\*\*|\*\*(.+?)\*\*|\*(.+?)\*|`([^`]+)`)/g;
+    let last = 0;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) segments.push({ t: text.slice(last, m.index), b: lineIsBold, i: false });
+      if      (m[2]) segments.push({ t: m[2], b: true,  i: true  });
+      else if (m[3]) segments.push({ t: m[3], b: true,  i: false });
+      else if (m[4]) segments.push({ t: m[4], b: false, i: true  });
+      else if (m[5]) segments.push({ t: m[5], b: false, i: false });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) segments.push({ t: text.slice(last), b: lineIsBold, i: false });
+    if (segments.length === 0) segments.push({ t: text, b: lineIsBold, i: false });
+
+    let curX = x;
+    for (const seg of segments) {
+      const weight = (seg.b || lineIsBold) ? 'bold ' : '';
+      const style  = seg.i ? 'italic ' : '';
+      ctx.font = `${style}${weight}${fontSize}px sans-serif`;
+
+      // Outline (border around text).
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth   = 4;
+      ctx.lineJoin    = 'round';
+      ctx.strokeText(seg.t, curX, y);
+
+      // Fill.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(seg.t, curX, y);
+
+      curX += ctx.measureText(seg.t).width;
+    }
   },
 
   /**

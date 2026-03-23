@@ -430,7 +430,7 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
             ],
           },
         ],
-        generationConfig: { maxOutputTokens: 1024 },
+        generationConfig: { maxOutputTokens: 4096 },
       }),
       timeout: 30000,
     });
@@ -448,8 +448,13 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
       data.candidates[0].content &&
       data.candidates[0].content.parts;
     const facts = Array.isArray(parts)
-      // Preserve Gemini's exact spacing/formatting across parts.
-      ? parts.map((part) => part && part.text).filter(Boolean).join('')
+      // Filter out "thinking" parts (thought: true) returned by reasoning
+      // models like gemini-2.5-flash, then join the remaining text parts.
+      ? parts
+          .filter((part) => part && !part.thought)
+          .map((part) => part.text)
+          .filter(Boolean)
+          .join('')
       : '';
     res.json({ facts });
 

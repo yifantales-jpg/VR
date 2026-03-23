@@ -59,4 +59,34 @@ describe('POST /api/ai-facts response assembly', () => {
     const promptText = promptPart.text;
     expect(promptText).toContain('Begin your response with "You are looking at..."');
   });
+
+  it('filters out thought parts from Gemini 2.5 thinking model responses', async () => {
+    process.env.GEMINI_API_KEY = 'test-key';
+
+    fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: 'Let me analyze this image...', thought: true },
+                { text: 'I can see a tower structure.', thought: true },
+                { text: 'You are looking at the Eiffel Tower. ' },
+                { text: 'It was completed in 1889.' },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+
+    const image = 'data:image/jpeg;base64,' + Buffer.alloc(16).toString('base64');
+    const res = await request(app)
+      .post('/api/ai-facts')
+      .send({ image, description: 'Eiffel Tower' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.facts).toBe('You are looking at the Eiffel Tower. It was completed in 1889.');
+  });
 });

@@ -509,9 +509,9 @@ describe('vr-controller-input floating windows', () => {
     instance._factsScrollLine = 0;
     instance._factsMaxVisible = 12;
     instance._lastFactsScroll = 0;
-    instance._zoomSteps       = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42, 0.35];
-    instance._zoomLevel       = 0;
-    instance._lastZoom        = 0;
+    instance._zoomSteps        = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.42, 0.35];
+    instance._zoomLevel        = 0;
+    instance._zoomAxisNeutral  = true;
     // Use plain objects as hand references so identity checks work.
     instance._leftHand  = { _id: 'left-hand' };
     instance._rightHand = { _id: 'right-hand' };
@@ -828,7 +828,7 @@ describe('vr-controller-input floating windows', () => {
     inst._factsActive = true;
     inst._scrollFacts = jest.fn();
     inst._stepCloser  = jest.fn();
-    inst._resetZoom   = jest.fn();
+    inst._stepFarther = jest.fn();
 
     // Stick up (y < -dz) → scroll down (show later lines)
     inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
@@ -842,7 +842,7 @@ describe('vr-controller-input floating windows', () => {
 
     // Zoom should NOT be triggered
     expect(inst._stepCloser).not.toHaveBeenCalled();
-    expect(inst._resetZoom).not.toHaveBeenCalled();
+    expect(inst._stepFarther).not.toHaveBeenCalled();
   });
 
   test('_hideFactsFrame resets scroll state and hides loading bar', () => {
@@ -918,7 +918,7 @@ describe('vr-controller-input floating windows', () => {
 
   // ── Thumbstick up / down → stepped zoom (both controllers) ─────────────
 
-  test('_onThumbstick: stick up steps closer (both controllers)', () => {
+  test('_onThumbstick: stick up steps closer (both controllers, edge-triggered)', () => {
     const inst = buildInstance();
     inst.el = {
       getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
@@ -926,22 +926,32 @@ describe('vr-controller-input floating windows', () => {
     };
     inst._updateZoomCanvas = jest.fn();
 
-    // Left controller
+    // Left controller: first push (axis was neutral → steps in)
     inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
     expect(inst._zoomLevel).toBe(1);
+    expect(inst._zoomAxisNeutral).toBe(false);
     expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', true);
 
-    // Right controller
-    inst._lastZoom = 0;
+    // Holding the stick up without returning to neutral → no further step
+    inst._zoomPlaneEl.setAttribute.mockClear();
+    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
+    expect(inst._zoomLevel).toBe(1);
+
+    // Return to neutral (axis reset)
+    inst._onThumbstick({ detail: { x: 0, y: 0.0 }, target: inst._leftHand });
+    expect(inst._zoomAxisNeutral).toBe(true);
+
+    // Right controller: second push after neutral → steps in again
     inst._zoomPlaneEl.setAttribute.mockClear();
     inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._rightHand });
     expect(inst._zoomLevel).toBe(2);
     expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', true);
   });
 
-  test('_onThumbstick: stick down resets zoom to default', () => {
+  test('_onThumbstick: stick down steps zoom out one level (edge-triggered)', () => {
     const inst = buildInstance();
     inst._zoomLevel = 2;
+    inst._zoomAxisNeutral = true;
     inst.el = {
       getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
       setAttribute: jest.fn(),
@@ -949,8 +959,8 @@ describe('vr-controller-input floating windows', () => {
     inst._updateZoomCanvas = jest.fn();
 
     inst._onThumbstick({ detail: { x: 0, y: 0.9 }, target: inst._leftHand });
-    expect(inst._zoomLevel).toBe(0);
-    expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', false);
+    expect(inst._zoomLevel).toBe(1); // stepped down one level (not reset to 0)
+    expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', true);
   });
 
   test('_stepCloser does not exceed maximum zoom level', () => {
@@ -969,6 +979,38 @@ describe('vr-controller-input floating windows', () => {
     inst._zoomLevel = 0;
 
     inst._resetZoom();
+    expect(inst._zoomPlaneEl.setAttribute).not.toHaveBeenCalled();
+  });
+
+  test('_stepFarther decrements zoom level by one', () => {
+    const inst = buildInstance();
+    inst.el = { setAttribute: jest.fn() };
+    inst._zoomLevel = 3;
+    inst._updateZoomCanvas = jest.fn();
+
+    inst._stepFarther();
+    expect(inst._zoomLevel).toBe(2);
+    expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', true);
+  });
+
+  test('_stepFarther hides plane when returning to level 0', () => {
+    const inst = buildInstance();
+    inst.el = { setAttribute: jest.fn() };
+    inst._zoomLevel = 1;
+    inst._updateZoomCanvas = jest.fn();
+
+    inst._stepFarther();
+    expect(inst._zoomLevel).toBe(0);
+    expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', false);
+  });
+
+  test('_stepFarther does nothing when already at level 0', () => {
+    const inst = buildInstance();
+    inst.el = { setAttribute: jest.fn() };
+    inst._zoomLevel = 0;
+
+    inst._stepFarther();
+    expect(inst._zoomLevel).toBe(0);
     expect(inst._zoomPlaneEl.setAttribute).not.toHaveBeenCalled();
   });
 

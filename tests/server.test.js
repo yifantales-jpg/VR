@@ -61,6 +61,13 @@ describe('GET /api/pano', () => {
     expect(res.status).toBe(400);
   });
 
+  it('accepts panoid with colon (common in Street View IDs)', async () => {
+    // safePanoId should allow colons; the actual CBK call will fail in tests
+    // (no network), but we verify it passes server-side validation.
+    const res = await request(app).get('/api/pano?panoid=F:-DsZwXRcGh-I6dVJqtKHg');
+    expect(res.status).not.toBe(400);
+  });
+
   it('returns 400 for invalid ll format', async () => {
     const res = await request(app).get('/api/pano?ll=not_a_coord');
     expect(res.status).toBe(400);

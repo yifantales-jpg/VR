@@ -61,7 +61,7 @@ class StreetViewService {
       if (pathDataMatch) {
         const m = pathDataMatch[1].match(/!1s([^!]+)/);
         if (m && m[1]) {
-          const panoId = m[1];
+          const panoId = decodeURIComponent(m[1]);
           // User-contributed Photo Spheres embed a direct Google image URL in !6s.
           // When present, pass it through so the caller can skip the CBK tile proxy.
           const photoUrl = StreetViewService._extractGooglePhotoUrl(pathDataMatch[1]);
@@ -78,7 +78,7 @@ class StreetViewService {
       if (data) {
         const m = data.match(/!1s([^!]+)/);
         if (m && m[1]) {
-          const panoId = m[1];
+          const panoId = decodeURIComponent(m[1]);
           const photoUrl = StreetViewService._extractGooglePhotoUrl(data);
           if (photoUrl) {
             const dims = StreetViewService._extractPhotoDimensions(data);

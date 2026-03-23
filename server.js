@@ -141,8 +141,8 @@ function safeInt(value, min = 0, max = Number.MAX_SAFE_INTEGER) {
 
 function safePanoId(value) {
   if (typeof value !== 'string') return null;
-  // Panorama IDs are base64url-like strings, max ~64 chars.
-  if (!/^[\w\-]{1,128}$/.test(value)) return null;
+  // Panorama IDs are base64url-like strings; allow alphanumeric, -, _, :, +, .
+  if (!/^[\w\-:+.]{1,256}$/.test(value)) return null;
   return value;
 }
 
@@ -384,7 +384,7 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
  * For local testing: export GEMINI_API_KEY=your_key_here  (then npm start)
  *
  * Request body (JSON, max 4 MB):
- *   { image: "data:image/jpeg;base64,…", description: "Location name" }
+ *   { image: "data:image/jpeg;base64,…", description: "Location name", language: "English" }
  *
  * Response (JSON):
  *   { facts: "…interesting facts…" }
@@ -395,7 +395,7 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
     return res.status(503).json({ error: 'AI service not configured (GEMINI_API_KEY not set).' });
   }
 
-  const { image, description } = req.body || {};
+  const { image, description, language } = req.body || {};
   if (!image || typeof image !== 'string' || !image.startsWith('data:image/')) {
     return res.status(400).json({ error: 'image field required (base64 data URL).' });
   }
@@ -410,7 +410,8 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
   const imageData = dataUrlMatch[2];
 
   const locationHint = description ? ` at "${description}"` : '';
-  const prompt = `Describe the Street View panorama${locationHint}. Begin your response with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.`;
+  const langHint = (language && language !== 'English') ? ` Respond entirely in ${language}.` : '';
+  const prompt = `Describe the Street View panorama${locationHint}. Begin your response with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.${langHint}`;
 
   const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 

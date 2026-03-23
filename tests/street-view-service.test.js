@@ -51,13 +51,13 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
   it('extracts panoId from data parameter', () => {
     const url = 'https://www.google.com/maps/@48.8584,2.2945,3a,75y,90h,90t/data=!3m6!1e1!3m4!1sABC123XYZ!2e0!7i13312!8i6656';
     const result = StreetViewService.parseGoogleMapsUrl(url);
-    expect(result).toEqual({ panoId: 'ABC123XYZ' });
+    expect(result).toMatchObject({ panoId: 'ABC123XYZ', lat: 48.8584, lng: 2.2945 });
   });
 
   it('decodes percent-encoded panoId from data parameter', () => {
     const url = 'https://www.google.com/maps/@48.8584,2.2945,3a,75y,90h,90t/data=!3m6!1e1!3m4!1sF%3A-DsZwXRcGh!2e0!7i16384!8i8192';
     const result = StreetViewService.parseGoogleMapsUrl(url);
-    expect(result).toEqual({ panoId: 'F:-DsZwXRcGh' });
+    expect(result).toMatchObject({ panoId: 'F:-DsZwXRcGh', lat: 48.8584, lng: 2.2945 });
   });
 
   it('extracts panoId from panoid query parameter', () => {
@@ -146,7 +146,7 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
   it('returns only panoId (no photoUrl) for a standard Street View URL', () => {
     const url = 'https://www.google.com/maps/@48.8584,2.2945,3a,75y,90h,90t/data=!3m6!1e1!3m4!1sABC123XYZ!2e0!7i13312!8i6656';
     const result = StreetViewService.parseGoogleMapsUrl(url);
-    expect(result).toEqual({ panoId: 'ABC123XYZ' });
+    expect(result).toMatchObject({ panoId: 'ABC123XYZ', lat: 48.8584, lng: 2.2945 });
     expect(result.photoUrl).toBeUndefined();
   });
 
@@ -156,7 +156,7 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
       'https://www.google.com/maps/@48.8584,2.2945,3a,75y,90h,90t' +
       '/data=!3m6!1e1!3m4!1sABC123XYZ!2e0!6shttps:%2F%2Fexample.com%2Fimage.jpg!7i13312!8i6656';
     const result = StreetViewService.parseGoogleMapsUrl(url);
-    expect(result).toEqual({ panoId: 'ABC123XYZ' });
+    expect(result).toMatchObject({ panoId: 'ABC123XYZ', lat: 48.8584, lng: 2.2945 });
     expect(result.photoUrl).toBeUndefined();
   });
 });

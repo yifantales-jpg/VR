@@ -53,6 +53,11 @@ function setLoading(loading) {
     $loadBtn.classList.add('hidden');
     $urlInput.classList.add('loading');
     $urlInput.style.setProperty('--progress', '0%');
+    // Hide the language row and hint after load is initiated.
+    const $langRow = document.getElementById('language-row');
+    const $hint    = document.getElementById('vr-hint');
+    if ($langRow) $langRow.classList.add('hidden');
+    if ($hint)    $hint.classList.add('hidden');
   } else {
     $loadBtn.classList.remove('hidden');
     $urlInput.classList.remove('loading');
@@ -255,6 +260,11 @@ function showUIOverlay() {
   $loadBtn.classList.remove('hidden');
   $urlInput.classList.remove('loading');
   $urlInput.style.removeProperty('--progress');
+  // Restore the language row and hint for the next session.
+  const $langRow = document.getElementById('language-row');
+  const $hint    = document.getElementById('vr-hint');
+  if ($langRow) $langRow.classList.remove('hidden');
+  if ($hint)    $hint.classList.remove('hidden');
   isVRMode = false;
 }
 

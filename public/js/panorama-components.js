@@ -182,7 +182,8 @@ AFRAME.registerComponent('street-view-scene', {
       if (panoData.description) {
         label.setAttribute('value', panoData.description);
       }
-      if (panoData.latLng && typeof panoData.latLng.lat === 'number' && typeof panoData.latLng.lng === 'number') {
+      if (panoData.latLng && typeof panoData.latLng.lat === 'number' && typeof panoData.latLng.lng === 'number' &&
+          (panoData.latLng.lat !== 0 || panoData.latLng.lng !== 0)) {
         label.dataset.lat = String(panoData.latLng.lat);
         label.dataset.lng = String(panoData.latLng.lng);
       } else {
@@ -347,7 +348,7 @@ AFRAME.registerComponent('vr-controller-input', {
     // Loading bar – a thin horizontal plane pulsing while AI facts load.
     this._loadingBarEl = document.createElement('a-plane');
     this._loadingBarEl.setAttribute('width',    '0.30');
-    this._loadingBarEl.setAttribute('height',   '0.008');
+    this._loadingBarEl.setAttribute('height',   '0.004');
     this._loadingBarEl.setAttribute('position', '0 0 0.002');
     this._loadingBarEl.setAttribute('material', 'shader: flat; color: #4fc3f7; opacity: 0.9; transparent: true');
     this._loadingBarEl.setAttribute('visible',  false);
@@ -610,7 +611,7 @@ AFRAME.registerComponent('vr-controller-input', {
     if (!this._loadingBarEl) return;
     this._loadingBarEl.setAttribute('visible', true);
     this._loadingBarEl.setAttribute('animation__pulse',
-      'property: scale; from: 0.3 1 1; to: 1 1 1; dur: 800; loop: true; dir: alternate; easing: easeInOutQuad');
+      'property: scale; from: 0.3 1 1; to: 1 1 1; dur: 1600; loop: true; dir: alternate; easing: easeInOutQuad');
   },
 
   _hideLoadingBar() {
@@ -842,7 +843,8 @@ AFRAME.registerComponent('vr-controller-input', {
     const H = this._factsCanvas.height;
     const PAD_X = 32;
     const PAD_Y = 10;
-    const LINE_H = 40;
+    const LINE_H = 32;
+    const PARA_GAP = 20;
     const FONT_SIZE = 24;
     const HEADING_FONT_SIZE = 28;
 
@@ -857,7 +859,7 @@ AFRAME.registerComponent('vr-controller-input', {
       const line = this._factsLines[i];
       if (!line) { y += LINE_H; continue; }
 
-      if (line.type === 'blank') { y += LINE_H * 0.6; continue; }
+      if (line.type === 'blank') { y += LINE_H + PARA_GAP; continue; }
 
       if (line.type === 'rule') {
         ctx.strokeStyle = 'rgba(255,255,255,0.5)';
@@ -927,7 +929,7 @@ AFRAME.registerComponent('vr-controller-input', {
 
   /**
    * Capture a JPEG snapshot of the current view, POST it to /api/ai-facts,
-   * and display the returned facts in the panel.
+   * and display the returned facts in the panel incrementally as SSE chunks arrive.
    */
   _fetchAIFacts() {
     // Render the snapshot canvas once to get the current view.
@@ -948,25 +950,78 @@ AFRAME.registerComponent('vr-controller-input', {
       ? { lat, lng }
       : null;
 
+    let accumulated        = '';
+    let firstChunkReceived = false;
+
     fetch('/api/ai-facts', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ image: snapshot, description, language, coordinates }),
-    }).then((res) => {
+    }).then(async (res) => {
       if (!res.ok) {
-        return res.json().catch(() => ({})).then((err) => {
-          if (this._factsActive) {
-            this._hideLoadingBar();
-            this._updateFactsText(err.error || 'Could not get facts. Try again.');
-          }
-        });
-      }
-      return res.json().then((data) => {
+        // Validation / auth errors still return JSON before headers switch to SSE.
+        const err = await res.json().catch(() => ({}));
         if (this._factsActive) {
           this._hideLoadingBar();
-          this._updateFactsText(data.facts || 'No facts available.');
+          this._updateFactsText(err.error || 'Could not get facts. Try again.');
         }
-      });
+        return;
+      }
+
+      // Read the SSE stream incrementally.
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let   buffer  = '';
+
+      try {
+        let done = false;
+        while (!done) {
+          const result = await reader.read();
+          done = result.done;
+          if (done) break;
+
+          buffer += decoder.decode(result.value, { stream: true });
+
+          // SSE events are separated by a blank line (\n\n).
+          const eventBlocks = buffer.split('\n\n');
+          buffer = eventBlocks.pop(); // keep the incomplete trailing block
+
+          for (const block of eventBlocks) {
+            for (const line of block.split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              const payload = line.slice(6).trim();
+              if (payload === '[DONE]') break;
+              try {
+                const chunk = JSON.parse(payload);
+                if (chunk.error) {
+                  if (this._factsActive) {
+                    this._hideLoadingBar();
+                    this._updateFactsText(chunk.error);
+                  }
+                  return;
+                }
+                if (chunk.text) {
+                  accumulated += chunk.text;
+                  if (!firstChunkReceived) {
+                    firstChunkReceived = true;
+                    this._hideLoadingBar();
+                  }
+                  if (this._factsActive) {
+                    this._updateFactsText(accumulated);
+                  }
+                }
+              } catch { /* ignore malformed JSON */ }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      if (!firstChunkReceived && this._factsActive) {
+        this._hideLoadingBar();
+        this._updateFactsText('No facts available.');
+      }
     }).catch(() => {
       if (this._factsActive) {
         this._hideLoadingBar();

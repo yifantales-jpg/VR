@@ -370,6 +370,64 @@ app.get('/api/resolve', apiLimiter, async (req, res) => {
   }
 });
 
+/* ─── Reverse geocoding proxy (Nominatim / OpenStreetMap) ───────────────── */
+
+/**
+ * GET /api/geocode?lat=…&lng=…
+ *
+ * Converts GPS coordinates to a human-readable address using the Nominatim
+ * OpenStreetMap reverse-geocoding service.  Used to give the AI a precise
+ * street-level address for the current panorama location.
+ *
+ * Results are cached for 1 hour — the same coordinates always map to the
+ * same address.
+ *
+ * OpenStreetMap / Nominatim data is © OpenStreetMap contributors.
+ * Usage policy: https://operations.osmfoundation.org/policies/nominatim/
+ *
+ * Response (application/json):
+ *   { address: "Rue de Rivoli, 1st arrondissement, Paris, France" }
+ */
+app.get('/api/geocode', apiLimiter, async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+
+  if (isNaN(lat) || isNaN(lng) ||
+      lat < -90 || lat > 90 || lng < -180 || lng > 180 ||
+      (lat === 0 && lng === 0)) {
+    return res.status(400).json({ error: 'Valid lat and lng parameters are required (not null-island 0,0).' });
+  }
+
+  const nominatimUrl =
+    `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}` +
+    `&format=json&zoom=18&addressdetails=0&accept-language=en`;
+
+  try {
+    const upstream = await fetch(nominatimUrl, {
+      headers: {
+        'User-Agent':      'VRStreetView/1.0 (educational VR panorama app)',
+        'Accept-Language': 'en',
+      },
+      timeout: 5000,
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: 'Geocoding service unavailable.' });
+    }
+
+    const data    = await upstream.json();
+    const address = data.display_name || '';
+
+    // Cache responses: coordinates → address is essentially immutable.
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.json({ address });
+
+  } catch (err) {
+    console.error('[geocode]', err.message);
+    return res.status(502).json({ error: 'Geocoding failed.' });
+  }
+});
+
 /* ─── Google Gemini AI facts endpoint ───────────────────────────────────── */
 
 /**

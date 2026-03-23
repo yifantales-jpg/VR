@@ -125,6 +125,10 @@ AFRAME.registerComponent('nav-arrow', {
  */
 AFRAME.registerComponent('street-view-scene', {
   init() {
+    // Sequence counter for reverse-geocoding requests: incremented with each
+    // panorama load so that stale responses from a previous pano are discarded.
+    this._geocodeSeq = 0;
+
     // Listen for navigation events from arrows.
     this.el.addEventListener('navigate', (evt) => {
       const panoId = evt.detail && evt.detail.panoId;
@@ -179,13 +183,30 @@ AFRAME.registerComponent('street-view-scene', {
     // Update the in-VR location label and store coordinates for AI requests.
     const label = this.el.querySelector('#location-text');
     if (label) {
-      if (panoData.description) {
-        label.setAttribute('value', panoData.description);
-      }
+      // Always update the description so stale text from a previous panorama
+      // is cleared when the new one has no description.
+      label.setAttribute('value', panoData.description || '');
+
       if (panoData.latLng && typeof panoData.latLng.lat === 'number' && typeof panoData.latLng.lng === 'number' &&
           (panoData.latLng.lat !== 0 || panoData.latLng.lng !== 0)) {
         label.dataset.lat = String(panoData.latLng.lat);
         label.dataset.lng = String(panoData.latLng.lng);
+
+        // Reverse-geocode coordinates to a human-readable address so the AI
+        // receives a precise street/city name rather than just raw GPS numbers.
+        // The sequence counter guards against stale responses when the user
+        // navigates to a new panorama before geocoding completes.
+        this._geocodeSeq = (this._geocodeSeq || 0) + 1;
+        const seq = this._geocodeSeq;
+        const { lat, lng } = panoData.latLng;
+        fetch(`/api/geocode?lat=${lat}&lng=${lng}`)
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.address && this._geocodeSeq === seq) {
+              label.setAttribute('value', data.address);
+            }
+          })
+          .catch(() => {}); // geocoding is best-effort; fail silently
       } else {
         delete label.dataset.lat;
         delete label.dataset.lng;

@@ -345,6 +345,9 @@ describe('street-view-scene panorama texture settings', () => {
       return origQuery(sel);
     });
 
+    const origFetch = global.fetch;
+    global.fetch = jest.fn(() => Promise.resolve({ json: () => Promise.resolve({}) }));
+
     try {
       instance.loadPanorama(
         { description: 'Eiffel Tower', links: [], latLng: { lat: 48.858370, lng: 2.294481 } },
@@ -353,6 +356,7 @@ describe('street-view-scene panorama texture settings', () => {
       );
     } finally {
       restore();
+      global.fetch = origFetch;
     }
 
     expect(label.dataset.lat).toBe('48.85837');
@@ -377,6 +381,143 @@ describe('street-view-scene panorama texture settings', () => {
 
     expect(label.dataset.lat).toBeUndefined();
     expect(label.dataset.lng).toBeUndefined();
+  });
+
+  test('loadPanorama always sets the label value even when description is empty (clears stale text)', () => {
+    const { instance, canvas, restore } = buildSceneInstance();
+
+    const label = { setAttribute: jest.fn(), dataset: {} };
+    const origQuery = instance.el.querySelector;
+    instance.el.querySelector = jest.fn((sel) => {
+      if (sel === '#location-text') return label;
+      return origQuery(sel);
+    });
+
+    try {
+      // No description field → value should be set to '' to clear any previous text.
+      instance.loadPanorama({ description: '', links: [] }, canvas, 0);
+    } finally {
+      restore();
+    }
+
+    expect(label.setAttribute).toHaveBeenCalledWith('value', '');
+  });
+
+  test('loadPanorama fires a geocoding request when valid coordinates are available', () => {
+    const { instance, canvas, restore } = buildSceneInstance();
+    instance._geocodeSeq = 0;
+
+    const label = { setAttribute: jest.fn(), dataset: {} };
+    const origQuery = instance.el.querySelector;
+    instance.el.querySelector = jest.fn((sel) => {
+      if (sel === '#location-text') return label;
+      return origQuery(sel);
+    });
+
+    const mockFetch = jest.fn(() => Promise.resolve({ json: () => Promise.resolve({}) }));
+    const origFetch = global.fetch;
+    global.fetch = mockFetch;
+
+    try {
+      instance.loadPanorama(
+        { description: 'Paris', links: [], latLng: { lat: 48.8566, lng: 2.3522 } },
+        canvas,
+        0
+      );
+    } finally {
+      restore();
+      global.fetch = origFetch;
+    }
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const calledUrl = mockFetch.mock.calls[0][0];
+    expect(calledUrl).toContain('/api/geocode');
+    expect(calledUrl).toContain('lat=48.8566');
+    expect(calledUrl).toContain('lng=2.3522');
+  });
+
+  test('loadPanorama updates label with geocoded address when geocoding succeeds', async () => {
+    const { instance, canvas, restore } = buildSceneInstance();
+    instance._geocodeSeq = 0;
+
+    const label = { setAttribute: jest.fn(), dataset: {} };
+    const origQuery = instance.el.querySelector;
+    instance.el.querySelector = jest.fn((sel) => {
+      if (sel === '#location-text') return label;
+      return origQuery(sel);
+    });
+
+    const mockFetch = jest.fn(() =>
+      Promise.resolve({ json: () => Promise.resolve({ address: 'Rue de Rivoli, Paris, France' }) })
+    );
+    const origFetch = global.fetch;
+    global.fetch = mockFetch;
+
+    try {
+      instance.loadPanorama(
+        { description: 'Paris', links: [], latLng: { lat: 48.8566, lng: 2.3522 } },
+        canvas,
+        0
+      );
+    } finally {
+      restore();
+      global.fetch = origFetch;
+    }
+
+    // Wait for the async geocoding promise to resolve (fetch → .json() → .then chain).
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(label.setAttribute).toHaveBeenCalledWith('value', 'Rue de Rivoli, Paris, France');
+  });
+
+  test('loadPanorama discards stale geocoding response when user has navigated away', async () => {
+    const { instance, canvas, restore } = buildSceneInstance();
+    instance._geocodeSeq = 0;
+
+    const label = { setAttribute: jest.fn(), dataset: {} };
+    const origQuery = instance.el.querySelector;
+    instance.el.querySelector = jest.fn((sel) => {
+      if (sel === '#location-text') return label;
+      return origQuery(sel);
+    });
+
+    // First panorama: geocoding resolves slowly (after seq is already > 1)
+    let resolveFirstGeocode;
+    const firstGeocodeProm = new Promise((resolve) => { resolveFirstGeocode = resolve; });
+    const mockFetch = jest.fn()
+      .mockReturnValueOnce(firstGeocodeProm.then(() => ({
+        json: () => Promise.resolve({ address: 'Old Address, Paris' }),
+      })))
+      .mockReturnValue(
+        Promise.resolve({ json: () => Promise.resolve({ address: 'New Address, Tokyo' }) })
+      );
+    const origFetch = global.fetch;
+    global.fetch = mockFetch;
+
+    try {
+      // Load panorama A (seq = 1)
+      instance.loadPanorama(
+        { description: 'Paris', links: [], latLng: { lat: 48.8566, lng: 2.3522 } },
+        canvas, 0
+      );
+      // Immediately load panorama B (seq = 2) — simulates quick navigation
+      instance.loadPanorama(
+        { description: 'Tokyo', links: [], latLng: { lat: 35.6762, lng: 139.6503 } },
+        canvas, 0
+      );
+    } finally {
+      restore();
+      global.fetch = origFetch;
+    }
+
+    // Now resolve geocoding for A (stale — seq is 2 now)
+    resolveFirstGeocode();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // The label should NOT have been updated with the stale result for A
+    const setCalls = label.setAttribute.mock.calls;
+    const addressCalls = setCalls.filter(([attr, val]) => attr === 'value' && val === 'Old Address, Paris');
+    expect(addressCalls).toHaveLength(0);
   });
 });
 

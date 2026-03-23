@@ -395,7 +395,7 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
     return res.status(503).json({ error: 'AI service not configured (GEMINI_API_KEY not set).' });
   }
 
-  const { image, description, language } = req.body || {};
+  const { image, description, language, coordinates } = req.body || {};
   if (!image || typeof image !== 'string' || !image.startsWith('data:image/')) {
     return res.status(400).json({ error: 'image field required (base64 data URL).' });
   }
@@ -410,8 +410,16 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
   const imageData = dataUrlMatch[2];
 
   const locationHint = description ? ` at "${description}"` : '';
+  let coordsHint = '';
+  if (coordinates && typeof coordinates === 'object') {
+    const { lat, lng } = coordinates;
+    if (typeof lat === 'number' && typeof lng === 'number' &&
+        lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      coordsHint = ` (GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)})`;
+    }
+  }
   const langHint = (language && language !== 'English') ? ` Respond entirely in ${language}.` : '';
-  const prompt = `Describe the Street View panorama${locationHint}. Begin your response with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.${langHint}`;
+  const prompt = `Describe the Street View panorama${locationHint}${coordsHint}. Begin your response with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.${langHint}`;
 
   const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 

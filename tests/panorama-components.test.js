@@ -333,6 +333,51 @@ describe('street-view-scene panorama texture settings', () => {
 
     expect(createdTextures[0].anisotropy).toBe(16);
   });
+
+  test('loadPanorama stores lat/lng as data attributes on the location-text label', () => {
+    const { instance, canvas, restore } = buildSceneInstance();
+
+    // Extend the querySelector mock to also return a label element.
+    const label = { setAttribute: jest.fn(), dataset: {} };
+    const origQuery = instance.el.querySelector;
+    instance.el.querySelector = jest.fn((sel) => {
+      if (sel === '#location-text') return label;
+      return origQuery(sel);
+    });
+
+    try {
+      instance.loadPanorama(
+        { description: 'Eiffel Tower', links: [], latLng: { lat: 48.858370, lng: 2.294481 } },
+        canvas,
+        0
+      );
+    } finally {
+      restore();
+    }
+
+    expect(label.dataset.lat).toBe('48.85837');
+    expect(label.dataset.lng).toBe('2.294481');
+  });
+
+  test('loadPanorama clears lat/lng data attributes when latLng is absent', () => {
+    const { instance, canvas, restore } = buildSceneInstance();
+
+    const label = { setAttribute: jest.fn(), dataset: { lat: '48.85', lng: '2.29' } };
+    const origQuery = instance.el.querySelector;
+    instance.el.querySelector = jest.fn((sel) => {
+      if (sel === '#location-text') return label;
+      return origQuery(sel);
+    });
+
+    try {
+      instance.loadPanorama({ description: 'Unknown', links: [] }, canvas, 0);
+    } finally {
+      restore();
+    }
+
+    expect(label.dataset.lat).toBeUndefined();
+    expect(label.dataset.lng).toBeUndefined();
+  });
 });
 
 /* ─── vr-controller-input: _updateSnapshotCanvas UV mapping ─────────────── */
@@ -519,6 +564,68 @@ describe('vr-controller-input floating windows', () => {
 
     expect(inst._copyFactsToClipboard).toHaveBeenCalled();
     expect(inst._hideFactsFrame).toHaveBeenCalled();
+  });
+
+  // ── _fetchAIFacts: includes coordinates when stored on location-text ──────
+
+  test('_fetchAIFacts sends coordinates from location-text data attributes', () => {
+    const inst = buildInstance();
+    inst._updateSnapshotCanvas = jest.fn();
+    inst._snapshotCanvas = { toDataURL: jest.fn(() => 'data:image/jpeg;base64,abc') };
+    inst._hideLoadingBar = jest.fn();
+    inst._updateFactsText = jest.fn();
+
+    const mockFetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ facts: 'ok' }) }));
+    const origFetch = global.fetch;
+    global.fetch = mockFetch;
+
+    const locEl = { getAttribute: () => 'Paris', dataset: { lat: '48.8566', lng: '2.3522' } };
+    const langEl = { value: 'English' };
+    const origGetById = global.document && global.document.getElementById;
+    global.document = {
+      getElementById: jest.fn((id) => {
+        if (id === 'location-text') return locEl;
+        if (id === 'ai-language') return langEl;
+        return null;
+      }),
+    };
+
+    inst._fetchAIFacts();
+
+    global.fetch = origFetch;
+    if (origGetById !== undefined) global.document.getElementById = origGetById;
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.coordinates).toEqual({ lat: 48.8566, lng: 2.3522 });
+  });
+
+  test('_fetchAIFacts sends null coordinates when data attributes are absent', () => {
+    const inst = buildInstance();
+    inst._updateSnapshotCanvas = jest.fn();
+    inst._snapshotCanvas = { toDataURL: jest.fn(() => 'data:image/jpeg;base64,abc') };
+    inst._hideLoadingBar = jest.fn();
+    inst._updateFactsText = jest.fn();
+
+    const mockFetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ facts: 'ok' }) }));
+    const origFetch = global.fetch;
+    global.fetch = mockFetch;
+
+    const locEl = { getAttribute: () => 'Paris', dataset: {} };
+    global.document = {
+      getElementById: jest.fn((id) => {
+        if (id === 'location-text') return locEl;
+        if (id === 'ai-language') return { value: 'English' };
+        return null;
+      }),
+    };
+
+    inst._fetchAIFacts();
+
+    global.fetch = origFetch;
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.coordinates).toBeNull();
   });
 
   test('_hideFactsFrame sets _factsActive false', () => {

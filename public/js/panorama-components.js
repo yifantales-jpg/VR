@@ -176,10 +176,19 @@ AFRAME.registerComponent('street-view-scene', {
       sky.setAttribute('rotation', { x: 0, y: -(heading + 90), z: 0 });
     }
 
-    // Update the in-VR location label.
+    // Update the in-VR location label and store coordinates for AI requests.
     const label = this.el.querySelector('#location-text');
-    if (label && panoData.description) {
-      label.setAttribute('value', panoData.description);
+    if (label) {
+      if (panoData.description) {
+        label.setAttribute('value', panoData.description);
+      }
+      if (panoData.latLng && typeof panoData.latLng.lat === 'number' && typeof panoData.latLng.lng === 'number') {
+        label.dataset.lat = String(panoData.latLng.lat);
+        label.dataset.lng = String(panoData.latLng.lng);
+      } else {
+        delete label.dataset.lat;
+        delete label.dataset.lng;
+      }
     }
 
     // Rebuild navigation arrows.
@@ -872,10 +881,18 @@ AFRAME.registerComponent('vr-controller-input', {
     const langEl   = document.getElementById('ai-language');
     const language = langEl ? langEl.value : 'English';
 
+    const rawLat = locTextEl && locTextEl.dataset.lat;
+    const rawLng = locTextEl && locTextEl.dataset.lng;
+    const lat = rawLat !== undefined && rawLat !== '' ? parseFloat(rawLat) : null;
+    const lng = rawLng !== undefined && rawLng !== '' ? parseFloat(rawLng) : null;
+    const coordinates = (lat !== null && !isNaN(lat) && lng !== null && !isNaN(lng))
+      ? { lat, lng }
+      : null;
+
     fetch('/api/ai-facts', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ image: snapshot, description, language }),
+      body:    JSON.stringify({ image: snapshot, description, language, coordinates }),
     }).then((res) => {
       if (!res.ok) {
         return res.json().catch(() => ({})).then((err) => {

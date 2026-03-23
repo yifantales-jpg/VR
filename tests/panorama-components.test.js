@@ -537,6 +537,7 @@ describe('vr-controller-input floating windows', () => {
       getContext: jest.fn(() => mockCtx),
     };
     instance._factsTexture = null;
+    instance._zoomPlaneEl  = { setAttribute: jest.fn() };
     return instance;
   }
 
@@ -923,17 +924,19 @@ describe('vr-controller-input floating windows', () => {
       getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
       setAttribute: jest.fn(),
     };
+    inst._updateZoomCanvas = jest.fn();
 
     // Left controller
     inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._leftHand });
     expect(inst._zoomLevel).toBe(1);
-    expect(inst.el.setAttribute).toHaveBeenCalledWith('scale', { x: 0.7, y: 0.7, z: 0.7 });
+    expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', true);
 
     // Right controller
     inst._lastZoom = 0;
+    inst._zoomPlaneEl.setAttribute.mockClear();
     inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._rightHand });
     expect(inst._zoomLevel).toBe(2);
-    expect(inst.el.setAttribute).toHaveBeenCalledWith('scale', { x: 0.5, y: 0.5, z: 0.5 });
+    expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', true);
   });
 
   test('_onThumbstick: stick down resets zoom to default', () => {
@@ -943,10 +946,11 @@ describe('vr-controller-input floating windows', () => {
       getAttribute: jest.fn(() => ({ x: 0, y: 0, z: 0 })),
       setAttribute: jest.fn(),
     };
+    inst._updateZoomCanvas = jest.fn();
 
     inst._onThumbstick({ detail: { x: 0, y: 0.9 }, target: inst._leftHand });
     expect(inst._zoomLevel).toBe(0);
-    expect(inst.el.setAttribute).toHaveBeenCalledWith('scale', { x: 1, y: 1, z: 1 });
+    expect(inst._zoomPlaneEl.setAttribute).toHaveBeenCalledWith('visible', false);
   });
 
   test('_stepCloser does not exceed maximum zoom level', () => {
@@ -956,7 +960,7 @@ describe('vr-controller-input floating windows', () => {
 
     inst._stepCloser();
     expect(inst._zoomLevel).toBe(3);
-    expect(inst.el.setAttribute).not.toHaveBeenCalled();
+    expect(inst._zoomPlaneEl.setAttribute).not.toHaveBeenCalled();
   });
 
   test('_resetZoom does nothing when already at default', () => {
@@ -965,7 +969,7 @@ describe('vr-controller-input floating windows', () => {
     inst._zoomLevel = 0;
 
     inst._resetZoom();
-    expect(inst.el.setAttribute).not.toHaveBeenCalled();
+    expect(inst._zoomPlaneEl.setAttribute).not.toHaveBeenCalled();
   });
 
   // ── Stepped rotation still works on both controllers ─────────────────────

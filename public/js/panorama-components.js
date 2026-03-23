@@ -250,8 +250,8 @@ AFRAME.registerComponent('loading-overlay', {
 /**
  * Handles Quest controller input while in VR:
  *   - Left / right thumbstick left / right → rotate camera rig in discrete steps.
- *   - Left / right thumbstick up           → step closer (zoom in via rig scaling).
- *   - Left / right thumbstick down         → reset to default distance.
+ *   - Left / right thumbstick up           → zoom in (canvas-based zoom plane).
+ *   - Left / right thumbstick down         → zoom out / reset to default.
  *   - B button (right hand)                → request AI facts about the current view;
  *                                            tap again to dismiss (copies text to clipboard).
  *   - X button (left hand)                 → exit VR.
@@ -269,10 +269,14 @@ AFRAME.registerComponent('vr-controller-input', {
     this._lastTurn    = 0;
     this._factsActive = false;
 
-    // Stepped zoom state: scaling the camera rig simulates proximity.
+    // Stepped zoom state: a canvas plane in front of the camera shows a
+    // cropped portion of the panorama texture — smaller crop = more zoom.
     this._zoomSteps    = [1, 0.7, 0.5, 0.35];
-    this._zoomLevel    = 0;          // index into _zoomSteps (0 = default)
+    this._zoomLevel    = 0;          // index into _zoomSteps (0 = no zoom)
     this._lastZoom     = 0;          // cooldown timestamp for zoom steps
+    this._zoomCanvas   = null;       // off-screen canvas for zoom texture
+    this._zoomTexture  = null;       // THREE.CanvasTexture wrapping _zoomCanvas
+    this._zoomPlaneEl  = null;       // a-plane covering the camera FOV
 
     // Facts-panel scroll state.
     this._factsLines       = [];   // all wrapped lines of the current AI response
@@ -321,6 +325,7 @@ AFRAME.registerComponent('vr-controller-input', {
     }
 
     this._setupFactsFrame();
+    this._setupZoomPlane();
   },
 
   /**
@@ -375,6 +380,132 @@ AFRAME.registerComponent('vr-controller-input', {
     }
   },
 
+  /**
+   * Create a large a-plane attached to the camera that fills the user's FOV.
+   * When zoomed in, it displays a cropped region of the panorama texture,
+   * producing a canvas-based digital zoom effect that works in WebXR.
+   */
+  _setupZoomPlane() {
+    const camera = this._cameraEl;
+    if (!camera) return;
+
+    this._zoomCanvas        = document.createElement('canvas');
+    this._zoomCanvas.width  = 512;
+    this._zoomCanvas.height = 512;
+
+    // A 2 m × 2 m plane at 0.5 m covers ~127° — enough for Quest 3's FOV.
+    this._zoomPlaneEl = document.createElement('a-plane');
+    this._zoomPlaneEl.setAttribute('width',    '2');
+    this._zoomPlaneEl.setAttribute('height',   '2');
+    this._zoomPlaneEl.setAttribute('position', '0 0 -0.5');
+    this._zoomPlaneEl.setAttribute('material', 'shader: flat; transparent: false; side: front');
+    this._zoomPlaneEl.setAttribute('visible',  false);
+    camera.appendChild(this._zoomPlaneEl);
+
+    if (this._zoomPlaneEl.getObject3D) {
+      const self = this;
+      const applyTexture = () => {
+        const mesh = self._zoomPlaneEl && self._zoomPlaneEl.getObject3D &&
+                     self._zoomPlaneEl.getObject3D('mesh');
+        if (!mesh) return;
+        self._zoomTexture = new THREE.CanvasTexture(self._zoomCanvas);
+        mesh.material.map = self._zoomTexture;
+        mesh.material.needsUpdate = true;
+      };
+      if (this._zoomPlaneEl.getObject3D('mesh')) {
+        applyTexture();
+      } else if (this._zoomPlaneEl.addEventListener) {
+        this._zoomPlaneEl.addEventListener('loaded', applyTexture, { once: true });
+      }
+    }
+  },
+
+  /**
+   * Sample a cropped region of the equirectangular panorama centred on the
+   * camera's look direction and paint it onto _zoomCanvas.
+   * The crop size is determined by the current zoom level: a smaller crop
+   * produces a higher zoom factor when stretched to fill the plane.
+   */
+  _updateZoomCanvas() {
+    const camera = this._cameraEl;
+    if (!camera || !this._panoramaCanvas || !this._zoomCanvas) return;
+
+    const cameraObj = camera.object3D;
+    if (!cameraObj) return;
+
+    // Use the gaze-cursor world position to compute the look direction.
+    let worldDir;
+    const cursor = this._gazeCursor && this._gazeCursor.object3D;
+    if (cursor && typeof cursor.getWorldPosition === 'function') {
+      cursor.getWorldPosition(this._cursorWorldPos);
+      cameraObj.getWorldPosition(this._camWorldPos);
+      this._worldDir.copy(this._cursorWorldPos).sub(this._camWorldPos).normalize();
+      worldDir = this._worldDir;
+    } else {
+      this._worldDir.set(0, 0, -1);
+      this._worldDir.applyQuaternion(cameraObj.getWorldQuaternion(this._worldQuat));
+      worldDir = this._worldDir;
+    }
+
+    let skyYRad = 0;
+    if (this._skyEl && this._skyEl.object3D) {
+      skyYRad = this._skyEl.object3D.rotation.y || 0;
+    }
+
+    const cosA = Math.cos(skyYRad);
+    const sinA = Math.sin(skyYRad);
+    const texX = worldDir.x * cosA - worldDir.z * sinA;
+    const texZ = worldDir.x * sinA + worldDir.z * cosA;
+    const texY = worldDir.y;
+
+    const azimuth   = Math.atan2(texZ, -texX);
+    const elevation = Math.asin(Math.max(-1, Math.min(1, texY)));
+    const u = ((azimuth / (Math.PI * 2)) + 1) % 1;
+    const v = 0.5 - elevation / Math.PI;
+
+    const panoW = this._panoramaCanvas.width;
+    const panoH = this._panoramaCanvas.height;
+    // Crop width: panoW/4 at zoom level 1 gives ~90° (matches typical HMD FOV),
+    // scaled by the zoom step → levels 1/2/3 (steps 0.7/0.5/0.35) give 1.4×/2×/2.9×.
+    const side = Math.floor(panoW / 4 * this._zoomSteps[this._zoomLevel]);
+    const srcW = side;
+    const srcH = side;
+    const srcX = u * panoW - srcW / 2;
+    const srcY = Math.max(0, Math.min(panoH - srcH, v * panoH - srcH / 2));
+
+    const ctx  = this._zoomCanvas.getContext('2d');
+    const dstW = this._zoomCanvas.width;
+    const dstH = this._zoomCanvas.height;
+    ctx.clearRect(0, 0, dstW, dstH);
+
+    // Flip horizontally: inside-sphere mapping mirrors left ↔ right.
+    ctx.save();
+    ctx.translate(dstW, 0);
+    ctx.scale(-1, 1);
+
+    if (srcX < 0) {
+      const wW = -srcX;
+      const rW = srcW - wW;
+      ctx.drawImage(this._panoramaCanvas, panoW + srcX, srcY, wW, srcH,
+        0, 0, (wW / srcW) * dstW, dstH);
+      ctx.drawImage(this._panoramaCanvas, 0, srcY, rW, srcH,
+        (wW / srcW) * dstW, 0, (rW / srcW) * dstW, dstH);
+    } else if (srcX + srcW > panoW) {
+      const lW = panoW - srcX;
+      const rW = srcW - lW;
+      ctx.drawImage(this._panoramaCanvas, srcX, srcY, lW, srcH,
+        0, 0, (lW / srcW) * dstW, dstH);
+      ctx.drawImage(this._panoramaCanvas, 0, srcY, rW, srcH,
+        (lW / srcW) * dstW, 0, (rW / srcW) * dstW, dstH);
+    } else {
+      ctx.drawImage(this._panoramaCanvas, srcX, srcY, srcW, srcH,
+        0, 0, dstW, dstH);
+    }
+
+    ctx.restore();
+    if (this._zoomTexture) this._zoomTexture.needsUpdate = true;
+  },
+
   remove() {
     if (this._leftHand) {
       this._leftHand.removeEventListener('thumbstickmoved', this._onThumbstick);
@@ -386,6 +517,15 @@ AFRAME.registerComponent('vr-controller-input', {
     }
     if (this._factsFrameEl && this._factsFrameEl.parentNode) {
       this._factsFrameEl.parentNode.removeChild(this._factsFrameEl);
+    }
+    if (this._zoomPlaneEl && this._zoomPlaneEl.parentNode) {
+      this._zoomPlaneEl.parentNode.removeChild(this._zoomPlaneEl);
+    }
+  },
+
+  tick() {
+    if (this._zoomLevel > 0) {
+      this._updateZoomCanvas();
     }
   },
 
@@ -435,7 +575,7 @@ AFRAME.registerComponent('vr-controller-input', {
     }
   },
 
-  /** Scale the camera rig one step smaller to simulate moving closer. */
+  /** Zoom in one step by showing a smaller crop of the panorama. */
   _stepCloser() {
     if (this._zoomLevel < this._zoomSteps.length - 1) {
       this._zoomLevel++;
@@ -443,7 +583,7 @@ AFRAME.registerComponent('vr-controller-input', {
     }
   },
 
-  /** Reset the camera rig scale to the default (1). */
+  /** Reset to the default (no zoom) view. */
   _resetZoom() {
     if (this._zoomLevel !== 0) {
       this._zoomLevel = 0;
@@ -451,10 +591,18 @@ AFRAME.registerComponent('vr-controller-input', {
     }
   },
 
-  /** Apply the current zoom level to the camera rig scale. */
+  /**
+   * Show or hide the zoom plane based on the current zoom level.
+   * The plane's texture is updated every tick via _updateZoomCanvas().
+   */
   _applyZoom() {
-    const s = this._zoomSteps[this._zoomLevel];
-    this.el.setAttribute('scale', { x: s, y: s, z: s });
+    if (!this._zoomPlaneEl) return;
+    if (this._zoomLevel === 0) {
+      this._zoomPlaneEl.setAttribute('visible', false);
+    } else {
+      this._updateZoomCanvas();
+      this._zoomPlaneEl.setAttribute('visible', true);
+    }
   },
 
   /**

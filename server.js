@@ -410,16 +410,16 @@ app.post('/api/ai-facts', express.json({ limit: '4mb' }), apiLimiter, async (req
   const imageData = dataUrlMatch[2];
 
   const locationHint = description ? ` at "${description}"` : '';
-  let coordsHint = '';
+  let geoInstr = '';
   if (coordinates && typeof coordinates === 'object') {
     const { lat, lng } = coordinates;
     if (typeof lat === 'number' && typeof lng === 'number' &&
         lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-      coordsHint = ` (GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)})`;
+      geoInstr = ` The exact GPS coordinates are ${lat.toFixed(6)}, ${lng.toFixed(6)} — use these to precisely identify the location (street, neighbourhood, city, and country).`;
     }
   }
   const langHint = (language && language !== 'English') ? ` Respond entirely in ${language}.` : '';
-  const prompt = `Describe the Street View panorama${locationHint}${coordsHint}. Begin your response with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.${langHint}`;
+  const prompt = `Describe the Street View panorama${locationHint}.${geoInstr} Begin your response with "You are looking at..." (avoid starting with "This image shows"). Share 3–4 amazing, surprising, or little-known facts about what you see — the location, architecture, history, culture, or anything remarkable. Be specific, fascinating, and concise.${langHint}`;
 
   const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 

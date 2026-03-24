@@ -786,11 +786,11 @@ describe('vr-controller-input floating windows', () => {
 
     // _startLocationLabelFade cancels any in-progress animation and resets opacity.
     expect(label.removeAttribute).toHaveBeenCalledWith('animation__locfade');
-    expect(label.setAttribute).toHaveBeenCalledWith('material', 'opacity: 1; shader: flat');
+    expect(label.setAttribute).toHaveBeenCalledWith('text', 'opacity: 1');
     // Then schedules the fade-out animation.
     expect(label.setAttribute).toHaveBeenCalledWith(
       'animation__locfade',
-      expect.stringContaining('material.opacity')
+      expect.stringContaining('text.opacity')
     );
   });
 
@@ -1143,8 +1143,6 @@ describe('vr-controller-input floating windows', () => {
 
   test('_renderFactsWindow adds bottom fade gradient when more lines exist below', () => {
     const inst = buildInstance();
-    // 25 lines total, 20 visible (default from source, but buildInstance sets 12)
-    // Override to a small number so we can trigger the gradient:
     inst._factsMaxVisible = 5;
     inst._factsLines = Array.from({ length: 10 }, (_, i) => ({ text: `Line ${i}`, type: 'text', headingLevel: 0 }));
     inst._factsScrollLine = 0; // 0 + 5 < 10 → hasMoreBelow = true
@@ -1156,17 +1154,18 @@ describe('vr-controller-input floating windows', () => {
     expect(ctx.fillRect).toHaveBeenCalled();
   });
 
-  test('_renderFactsWindow does NOT add fade gradient when all lines are visible', () => {
+  test('_renderFactsWindow always adds bottom fade gradient even when all lines are visible', () => {
     const inst = buildInstance();
     inst._factsMaxVisible = 12;
     inst._factsLines = Array.from({ length: 5 }, (_, i) => ({ text: `Line ${i}`, type: 'text', headingLevel: 0 }));
-    inst._factsScrollLine = 0; // 0 + 12 >= 5 → hasMoreBelow = false
+    inst._factsScrollLine = 0; // 0 + 12 >= 5 → all lines visible
 
     inst._renderFactsWindow();
 
+    // Gradient is always drawn to give the panel a polished faded-bottom appearance.
     const ctx = inst._factsCanvas.getContext();
-    expect(ctx.createLinearGradient).not.toHaveBeenCalled();
-    expect(ctx.fillRect).not.toHaveBeenCalled();
+    expect(ctx.createLinearGradient).toHaveBeenCalled();
+    expect(ctx.fillRect).toHaveBeenCalled();
   });
 
   test('_renderFactsWindow restores globalCompositeOperation and fillStyle after bottom fade', () => {

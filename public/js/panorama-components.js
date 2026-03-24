@@ -125,11 +125,12 @@ function _startLocationLabelFade() {
   const textEl = typeof document !== 'undefined' && document.getElementById('location-text');
   if (!textEl) return;
   // Cancel any in-progress fade and restore full opacity.
+  // <a-text> exposes opacity via the text component, not the material component.
   textEl.removeAttribute('animation__locfade');
-  textEl.setAttribute('material', 'opacity: 1; shader: flat');
+  textEl.setAttribute('text', 'opacity: 1');
   // Schedule the fade-out: 3 s hold, then 1 s fade to transparent.
   textEl.setAttribute('animation__locfade',
-    'property: material.opacity; from: 1; to: 0; delay: 3000; dur: 1000; easing: easeInQuad');
+    'property: text.opacity; from: 1; to: 0; delay: 3000; dur: 1000; easing: easeInQuad');
 }
 
 /**
@@ -441,8 +442,8 @@ AFRAME.registerComponent('vr-controller-input', {
     if (!camera) return;
 
     this._zoomCanvas        = document.createElement('canvas');
-    this._zoomCanvas.width  = 512;
-    this._zoomCanvas.height = 512;
+    this._zoomCanvas.width  = 1024;
+    this._zoomCanvas.height = 1024;
 
     // A 4 m × 4 m plane at 1 m covers ~127° — enough for Quest 3's FOV.
     // Doubling the distance (vs 0.5 m) gives a more comfortable viewing
@@ -535,6 +536,10 @@ AFRAME.registerComponent('vr-controller-input', {
     const dstW = this._zoomCanvas.width;
     const dstH = this._zoomCanvas.height;
     ctx.clearRect(0, 0, dstW, dstH);
+    // Use high-quality interpolation to reduce aliasing artefacts when the
+    // source panorama pixels are upscaled (high zoom) or downscaled (low zoom).
+    ctx.imageSmoothingEnabled  = true;
+    ctx.imageSmoothingQuality  = 'high';
 
     // No horizontal flip needed: <a-sky>'s scale(-1,1,1) already accounts for
     // inside-sphere left-right mirroring, so the canvas should match the sphere.
@@ -1087,23 +1092,21 @@ AFRAME.registerComponent('vr-controller-input', {
       y += LINE_H;
     }
 
-    // When there are more lines below the visible window, draw a gradient at
-    // the bottom of the canvas fading to transparent.  This signals to the
-    // user that additional content is available by scrolling up.
-    const hasMoreBelow = (start + this._factsMaxVisible) < this._factsLines.length;
-    if (hasMoreBelow) {
-      const fadeH = Math.floor(H * 0.25);
-      const gradient = ctx.createLinearGradient(0, H - fadeH, 0, H);
-      gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
-      gradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
-      const prevCompositeOperation = ctx.globalCompositeOperation;
-      const prevFillStyle = ctx.fillStyle;
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, H - fadeH, W, fadeH);
-      ctx.globalCompositeOperation = prevCompositeOperation;
-      ctx.fillStyle = prevFillStyle;
-    }
+    // Always draw a fade gradient at the bottom of the canvas so the panel has
+    // a polished appearance and signals to the user that content may extend
+    // beyond the visible area.  When the canvas content is shorter than the
+    // gradient region the effect is invisible (transparent → transparent).
+    const fadeH = Math.floor(H * 0.25);
+    const gradient = ctx.createLinearGradient(0, H - fadeH, 0, H);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
+    const prevCompositeOperation = ctx.globalCompositeOperation;
+    const prevFillStyle = ctx.fillStyle;
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, H - fadeH, W, fadeH);
+    ctx.globalCompositeOperation = prevCompositeOperation;
+    ctx.fillStyle = prevFillStyle;
 
     if (this._factsTexture) this._factsTexture.needsUpdate = true;
   },

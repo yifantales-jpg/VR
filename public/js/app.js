@@ -33,6 +33,7 @@ const $statusBar      = document.getElementById('status-bar');
 const $uiOverlay      = document.getElementById('ui-overlay');
 const $vrScene        = document.getElementById('vr-scene');
 const $loadBtn        = document.getElementById('load-btn');
+const $randomBtn      = document.getElementById('random-btn');
 const $panoramaCanvas = document.getElementById('panorama-canvas');
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -51,6 +52,7 @@ function clearStatus() {
 function setLoading(loading) {
   if (loading) {
     $loadBtn.classList.add('hidden');
+    if ($randomBtn) $randomBtn.classList.add('hidden');
     $urlInput.classList.add('loading');
     $urlInput.style.setProperty('--progress', '0%');
     // Hide the language row and hint after load is initiated.
@@ -60,6 +62,7 @@ function setLoading(loading) {
     if ($hint)    $hint.classList.add('hidden');
   } else {
     $loadBtn.classList.remove('hidden');
+    if ($randomBtn) $randomBtn.classList.remove('hidden');
     $urlInput.classList.remove('loading');
     $urlInput.style.removeProperty('--progress');
   }
@@ -206,6 +209,41 @@ async function loadRandomPano() {
 }
 
 /**
+ * Fetch a random panorama and enter immersive VR.
+ * Triggered by the "Random" button in the 2-D UI.
+ *
+ * Mirrors loadFromUrl() so that transitionToVRScene() (and thus enterVR())
+ * is called synchronously within the button-click user-gesture activation —
+ * necessary for Meta Quest to allow re-entry into an immersive-vr session
+ * after the user has previously exited one.
+ */
+async function loadRandomFromUI() {
+  setLoading(true);
+  clearStatus();
+
+  // Start the VR transition synchronously, before any await, so the WebXR
+  // requestSession call is made while the user-gesture activation is still valid.
+  const enteringVR = !isVRMode;
+  if (enteringVR) {
+    transitionToVRScene();
+  }
+
+  try {
+    const res = await fetch('/api/random-pano');
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const { panoId } = await res.json();
+    const svc = getService();
+    const panoData = await svc.fetchPanoData({ panoId });
+    await loadPanorama(panoData, /* showScene= */ false);
+  } catch (err) {
+    console.error('[VRStreetView] Random panorama error:', err);
+    if (enteringVR) showUIOverlay();
+  } finally {
+    setLoading(false);
+  }
+}
+
+/**
  * Core panorama-loading routine:
  *  1. For standard Street View panos: stitch CBK tiles onto the shared canvas.
  *  2. For user-contributed Photo Spheres: fetch the equirectangular image directly.
@@ -294,6 +332,7 @@ function showUIOverlay() {
   $uiOverlay.style.display = '';
   // Ensure the load button is visible (hidden during loading / VR session).
   $loadBtn.classList.remove('hidden');
+  if ($randomBtn) $randomBtn.classList.remove('hidden');
   $urlInput.classList.remove('loading');
   $urlInput.style.removeProperty('--progress');
   // Restore the language row and hint for the next session.
@@ -399,6 +438,13 @@ $loadBtn.addEventListener('click', () => {
   }
   loadFromUrl(url);
 });
+
+/** "Random" button: fetch a random panorama and enter immersive VR. */
+if ($randomBtn) {
+  $randomBtn.addEventListener('click', () => {
+    loadRandomFromUI();
+  });
+}
 
 $urlInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {

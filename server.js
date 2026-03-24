@@ -33,6 +33,11 @@
  *        Google's image hosting (lh3.googleusercontent.com). Only Google
  *        image hosting URLs are accepted to prevent open-proxy abuse.
  *
+ *   GET  /api/random-pano
+ *        Return a panoId for a random Street View panorama chosen from a
+ *        curated set of world-wide locations.  The Y button uses this to
+ *        jump to a random panorama without user input.
+ *
  *   POST /api/ai-facts
  *        Accept a base64 JPEG snapshot of the current view and an optional
  *        location description; query the Google Gemini API for amazing
@@ -311,6 +316,91 @@ app.get('/api/photo', apiLimiter, async (req, res) => {
   } catch (err) {
     console.error('[photo proxy]', err.message);
     res.status(502).json({ error: 'Failed to fetch photo.' });
+  }
+});
+
+/* ─── Random panorama ────────────────────────────────────────────────────── */
+
+/**
+ * A curated list of interesting Street View locations from around the world.
+ * Each entry is [latitude, longitude].  The /api/random-pano endpoint picks
+ * one at random and fetches the nearest CBK panorama.
+ */
+const RANDOM_PANO_LOCATIONS = [
+  [48.8584,   2.2945],   // Eiffel Tower, Paris, France
+  [51.5007,  -0.1246],   // Big Ben, London, UK
+  [40.6892,  -74.0445],  // Statue of Liberty, New York, USA
+  [35.6895,  139.6917],  // Shibuya, Tokyo, Japan
+  [-33.8688, 151.2093],  // Sydney Opera House, Australia
+  [41.9028,   12.4964],  // Colosseum, Rome, Italy
+  [27.1751,   78.0421],  // Taj Mahal, Agra, India
+  [-22.9519, -43.2105],  // Christ the Redeemer, Rio de Janeiro, Brazil
+  [29.9792,   31.1342],  // Great Pyramid, Giza, Egypt
+  [55.7558,   37.6173],  // Red Square, Moscow, Russia
+  [37.9715,   23.7267],  // Acropolis, Athens, Greece
+  [25.1972,   55.2744],  // Burj Khalifa, Dubai, UAE
+  [43.7230,   10.3966],  // Leaning Tower of Pisa, Italy
+  [-13.1631, -72.5450],  // Machu Picchu, Peru
+  [48.2082,   16.3738],  // Vienna City Hall, Austria
+  [1.2897,   103.8501],  // Marina Bay Sands, Singapore
+  [59.9139,   10.7522],  // Oslo, Norway
+  [64.1265,  -21.8174],  // Reykjavik, Iceland
+  [19.4326,  -99.1332],  // Mexico City Zócalo, Mexico
+  [34.0522, -118.2437],  // Los Angeles, USA
+  [-4.3239,   15.3222],  // Kinshasa, DR Congo
+  [31.2304,  121.4737],  // The Bund, Shanghai, China
+  [55.6761,   12.5683],  // Copenhagen, Denmark
+  [-33.9249,  18.4241],  // Cape Town, South Africa
+  [13.7563,  100.5018],  // Bangkok, Thailand
+];
+
+/**
+ * GET /api/random-pano
+ *
+ * Picks a random entry from the RANDOM_PANO_LOCATIONS list, queries the
+ * Google CBK metadata service for the nearest Street View panorama, and
+ * returns its panoId.  Used by the VR controller's Y button to jump to a
+ * random panorama without requiring user input.
+ *
+ * Response (application/json):
+ *   { panoId: "…" }
+ */
+app.get('/api/random-pano', apiLimiter, async (req, res) => {
+  const [lat, lng] = RANDOM_PANO_LOCATIONS[
+    Math.floor(Math.random() * RANDOM_PANO_LOCATIONS.length)
+  ];
+
+  const params = new URLSearchParams({
+    output: 'json',
+    ll:     `${lat},${lng}`,
+    radius: String(DEFAULT_PANO_SEARCH_RADIUS),
+  });
+  const cbkUrl = `https://cbk0.google.com/cbk?${params}`;
+
+  try {
+    const upstream = await fetch(cbkUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; VRStreetView/1.0)',
+        'Referer':    'https://maps.google.com/',
+      },
+      timeout: 10000,
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).json({ error: 'Could not find a panorama at this location.' });
+    }
+
+    const json   = await upstream.json();
+    const panoId = json && json.Location && json.Location.panoId;
+    if (!panoId) {
+      return res.status(502).json({ error: 'No panorama found at this location.' });
+    }
+
+    return res.json({ panoId });
+
+  } catch (err) {
+    console.error('[random-pano]', err.message);
+    return res.status(502).json({ error: 'Failed to fetch random panorama.' });
   }
 });
 

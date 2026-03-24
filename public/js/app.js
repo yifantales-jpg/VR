@@ -170,6 +170,26 @@ async function navigateToPano(panoId) {
 }
 
 /**
+ * Fetch a random panorama from the server and load it.
+ * Triggered by the Y button on the left-hand VR controller.
+ */
+async function loadRandomPano() {
+  try {
+    showVRLoadingIndicator(true, 'Loading random panorama…');
+    const res = await fetch('/api/random-pano');
+    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const { panoId } = await res.json();
+    const svc = getService();
+    const panoData = await svc.fetchPanoData({ panoId });
+    await loadPanorama(panoData, /* showScene= */ false);
+  } catch (err) {
+    console.error('[VRStreetView] Random panorama error:', err);
+  } finally {
+    showVRLoadingIndicator(false);
+  }
+}
+
+/**
  * Core panorama-loading routine:
  *  1. For standard Street View panos: stitch CBK tiles onto the shared canvas.
  *  2. For user-contributed Photo Spheres: fetch the equirectangular image directly.
@@ -377,6 +397,11 @@ document.getElementById('vr-scene').addEventListener('exit-vr', () => {
 document.getElementById('vr-scene').addEventListener('load-pano-by-id', (evt) => {
   const panoId = evt.detail && evt.detail.panoId;
   if (panoId) navigateToPano(panoId);
+});
+
+/** Y button: load a random panorama from the server's curated location list. */
+document.getElementById('vr-scene').addEventListener('load-random-pano', () => {
+  loadRandomPano();
 });
 
 /* ─── Init ───────────────────────────────────────────────────────────────── */

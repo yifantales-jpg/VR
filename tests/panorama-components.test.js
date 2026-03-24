@@ -808,6 +808,39 @@ describe('vr-controller-input floating windows', () => {
     expect(rightHand.removeEventListener).toHaveBeenCalledWith('abuttondown', expect.any(Function));
   });
 
+  // ── Y button ─────────────────────────────────────────────────────────────
+
+  test('_onYButton emits load-random-pano on the scene', () => {
+    const inst = buildInstance();
+    const scene = { emit: jest.fn() };
+    inst.el = { sceneEl: scene };
+
+    inst._onYButton();
+
+    expect(scene.emit).toHaveBeenCalledWith('load-random-pano');
+  });
+
+  test('_onYButton does nothing when sceneEl is absent', () => {
+    const inst = buildInstance();
+    inst.el = { sceneEl: null };
+
+    expect(() => inst._onYButton()).not.toThrow();
+  });
+
+  test('remove() detaches ybuttondown listener from left hand', () => {
+    const inst = buildInstance();
+    const rightHand = { removeEventListener: jest.fn() };
+    const leftHand  = { removeEventListener: jest.fn() };
+    inst._rightHand    = rightHand;
+    inst._leftHand     = leftHand;
+    inst._factsFrameEl = null;
+    inst._zoomPlaneEl  = null;
+
+    inst.remove();
+
+    expect(leftHand.removeEventListener).toHaveBeenCalledWith('ybuttondown', expect.any(Function));
+  });
+
   // ── _fetchAIFacts: includes coordinates when stored on location-text ──────
 
   test('_fetchAIFacts sends coordinates from location-text data attributes', () => {

@@ -120,6 +120,17 @@ async function loadFromUrl(input) {
   setLoading(true);
   clearStatus();
 
+  // Begin the VR transition synchronously, before any await, so that the
+  // WebXR requestSession call happens while the user-gesture activation is
+  // still valid.  On Meta Quest (and other WebXR platforms) re-entering an
+  // immersive session after the user has explicitly exited requires the
+  // navigator.xr.requestSession() call to be initiated within the same
+  // user-activation task – a setTimeout or Promise callback breaks that chain.
+  const enteringVR = !isVRMode;
+  if (enteringVR) {
+    transitionToVRScene();
+  }
+
   try {
     let urlToParse = trimmed;
     let parsed = StreetViewService.parseGoogleMapsUrl(urlToParse);
@@ -136,17 +147,22 @@ async function loadFromUrl(input) {
 
     if (!parsed) {
       $urlInput.classList.add('error');
+      // Roll back the VR transition if the URL turned out to be invalid.
+      if (enteringVR) showUIOverlay();
       return;
     }
 
     const svc = getService();
     const panoData = await svc.fetchPanoData(parsed);
 
-    await loadPanorama(panoData);
+    // Pass showScene=false: the scene transition was already started above (or
+    // we were already in VR), so loadPanorama only needs to apply the texture.
+    await loadPanorama(panoData, /* showScene= */ false);
 
   } catch (err) {
     console.error('[VRStreetView] Load error:', err);
     $urlInput.classList.add('error');
+    if (enteringVR) showUIOverlay();
   } finally {
     setLoading(false);
   }
@@ -292,6 +308,38 @@ function showUIOverlay() {
 function transitionToVRScene() {
   $uiOverlay.classList.add('fade-out');
 
+  // Register A-Frame components and mark VR mode as active immediately so
+  // showVRLoadingIndicator works as soon as tile fetching begins.
+  registerSceneComponents();
+  isVRMode = true;
+
+  // Attempt to enter immersive VR synchronously while still in the
+  // user-gesture activation context.  On Meta Quest (Oculus/Meta Browser),
+  // navigator.xr.requestSession('immersive-vr') – which A-Frame calls
+  // internally inside enterVR() – must be initiated within the same task as
+  // the originating user gesture.  Wrapping the call in setTimeout() or a
+  // Promise.then() creates a new task / microtask boundary that consumes the
+  // transient user activation, causing re-entry after an explicit exit to fail
+  // silently.  Calling enterVR() directly here (before any await) preserves
+  // that activation.
+  const scene = document.getElementById('vr-scene');
+  if (navigator.xr && scene) {
+    // Render the XR framebuffer at 1.5× the device-recommended resolution
+    // for sharper output; must be set before the session is created.
+    // Errors are intentionally ignored (unsupported platforms) so enterVR() still runs.
+    if (scene.renderer && scene.renderer.xr) {
+      try { scene.renderer.xr.setFramebufferScaleFactor(1.5); } catch (e) { /* ignored */ }
+    }
+    try {
+      if (!scene.is('vr-mode')) scene.enterVR();
+    } catch (err) {
+      console.error('[VRStreetView] Auto enter VR error:', err);
+    }
+  }
+
+  // Hide the overlay and trigger a layout resize after the fade animation.
+  // The panorama texture is applied separately by loadPanorama() once tiles
+  // have finished loading (via the showScene=false → applyPanoramaToScene path).
   setTimeout(() => {
     $uiOverlay.style.display = 'none';
 
@@ -299,31 +347,6 @@ function transitionToVRScene() {
     // resize event so A-Frame/Three.js recomputes canvas dimensions now that
     // the overlay is gone.
     window.dispatchEvent(new Event('resize'));
-
-    registerSceneComponents();
-    applyPanoramaToScene(currentPanoData);
-
-    isVRMode = true;
-
-    // Automatically enter immersive VR mode once the panorama is ready.
-    if (navigator.xr) {
-      navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
-        if (!supported) return;
-        const scene = document.getElementById('vr-scene');
-        // Render the XR framebuffer at 1.5× the device-recommended resolution
-        // for sharper output; must be called before the session is created.
-        if (scene && scene.renderer && scene.renderer.xr) {
-          scene.renderer.xr.setFramebufferScaleFactor(1.5);
-        }
-        try {
-          if (scene && !scene.is('vr-mode')) scene.enterVR();
-        } catch (err) {
-          console.error('[VRStreetView] Auto enter VR error:', err);
-        }
-      }).catch((err) => {
-        console.error('[VRStreetView] isSessionSupported error:', err);
-      });
-    }
   }, 400);
 }
 

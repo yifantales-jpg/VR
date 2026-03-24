@@ -442,8 +442,8 @@ AFRAME.registerComponent('vr-controller-input', {
     if (!camera) return;
 
     this._zoomCanvas        = document.createElement('canvas');
-    this._zoomCanvas.width  = 1024;
-    this._zoomCanvas.height = 1024;
+    this._zoomCanvas.width  = 2048;
+    this._zoomCanvas.height = 2048;
 
     // A 4 m × 4 m plane at 1 m covers ~127° — enough for Quest 3's FOV.
     // Doubling the distance (vs 0.5 m) gives a more comfortable viewing

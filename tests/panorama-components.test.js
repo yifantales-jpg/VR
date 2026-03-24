@@ -338,7 +338,7 @@ describe('street-view-scene panorama texture settings', () => {
     const { instance, canvas, restore } = buildSceneInstance();
 
     // Extend the querySelector mock to also return a label element.
-    const label = { setAttribute: jest.fn(), dataset: {} };
+    const label = { setAttribute: jest.fn(), removeAttribute: jest.fn(), dataset: {} };
     const origQuery = instance.el.querySelector;
     instance.el.querySelector = jest.fn((sel) => {
       if (sel === '#location-text') return label;
@@ -366,7 +366,7 @@ describe('street-view-scene panorama texture settings', () => {
   test('loadPanorama clears lat/lng data attributes when latLng is absent', () => {
     const { instance, canvas, restore } = buildSceneInstance();
 
-    const label = { setAttribute: jest.fn(), dataset: { lat: '48.85', lng: '2.29' } };
+    const label = { setAttribute: jest.fn(), removeAttribute: jest.fn(), dataset: { lat: '48.85', lng: '2.29' } };
     const origQuery = instance.el.querySelector;
     instance.el.querySelector = jest.fn((sel) => {
       if (sel === '#location-text') return label;
@@ -386,7 +386,7 @@ describe('street-view-scene panorama texture settings', () => {
   test('loadPanorama always sets the label value even when description is empty (clears stale text)', () => {
     const { instance, canvas, restore } = buildSceneInstance();
 
-    const label = { setAttribute: jest.fn(), dataset: {} };
+    const label = { setAttribute: jest.fn(), removeAttribute: jest.fn(), dataset: {} };
     const origQuery = instance.el.querySelector;
     instance.el.querySelector = jest.fn((sel) => {
       if (sel === '#location-text') return label;
@@ -407,7 +407,7 @@ describe('street-view-scene panorama texture settings', () => {
     const { instance, canvas, restore } = buildSceneInstance();
     instance._geocodeSeq = 0;
 
-    const label = { setAttribute: jest.fn(), dataset: {} };
+    const label = { setAttribute: jest.fn(), removeAttribute: jest.fn(), dataset: {} };
     const origQuery = instance.el.querySelector;
     instance.el.querySelector = jest.fn((sel) => {
       if (sel === '#location-text') return label;
@@ -440,7 +440,7 @@ describe('street-view-scene panorama texture settings', () => {
     const { instance, canvas, restore } = buildSceneInstance();
     instance._geocodeSeq = 0;
 
-    const label = { setAttribute: jest.fn(), dataset: {} };
+    const label = { setAttribute: jest.fn(), removeAttribute: jest.fn(), dataset: {} };
     const origQuery = instance.el.querySelector;
     instance.el.querySelector = jest.fn((sel) => {
       if (sel === '#location-text') return label;
@@ -474,7 +474,7 @@ describe('street-view-scene panorama texture settings', () => {
     const { instance, canvas, restore } = buildSceneInstance();
     instance._geocodeSeq = 0;
 
-    const label = { setAttribute: jest.fn(), dataset: {} };
+    const label = { setAttribute: jest.fn(), removeAttribute: jest.fn(), dataset: {} };
     const origQuery = instance.el.querySelector;
     instance.el.querySelector = jest.fn((sel) => {
       if (sel === '#location-text') return label;
@@ -667,15 +667,18 @@ describe('vr-controller-input floating windows', () => {
       moveTo: jest.fn(),
       lineTo: jest.fn(),
       stroke: jest.fn(),
+      createLinearGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
+      fillRect: jest.fn(),
       font: '',
       fillStyle: '',
       strokeStyle: '',
       lineWidth: 0,
       lineJoin: '',
       textBaseline: '',
+      globalCompositeOperation: 'source-over',
     };
     instance._factsCanvas = {
-      width: 1024, height: 512,
+      width: 1024, height: 853,
       getContext: jest.fn(() => mockCtx),
     };
     instance._factsTexture = null;
@@ -874,7 +877,7 @@ describe('vr-controller-input floating windows', () => {
 
     inst._setupFactsFrame();
 
-    expect(inst._factsFrameEl.attributes.position).toBe('0 -0.18 -0.7');
+    expect(inst._factsFrameEl.attributes.position).toBe('0 -0.25 -0.7');
 
     // No background panel — uses canvas-based text rendering on a plane.
     expect(inst._factsBgEl).toBeUndefined();
@@ -883,7 +886,7 @@ describe('vr-controller-input floating windows', () => {
     expect(inst._factsPlaneEl).toBeDefined();
     expect(inst._factsPlaneEl.tag).toBe('a-plane');
     expect(inst._factsPlaneEl.attributes.width).toBe('0.60');
-    expect(inst._factsPlaneEl.attributes.height).toBe('0.30');
+    expect(inst._factsPlaneEl.attributes.height).toBe('0.50');
     expect(inst._factsPlaneEl.attributes.material).toContain('transparent: true');
 
     // Loading bar is created.
@@ -985,6 +988,56 @@ describe('vr-controller-input floating windows', () => {
     // Zoom should NOT be triggered
     expect(inst._stepCloser).not.toHaveBeenCalled();
     expect(inst._stepFarther).not.toHaveBeenCalled();
+  });
+
+  test('_onThumbstick: right stick up/down also scrolls facts when panel is active', () => {
+    const inst = buildInstance();
+    inst._factsActive = true;
+    inst._scrollFacts = jest.fn();
+    inst._stepCloser  = jest.fn();
+    inst._stepFarther = jest.fn();
+
+    // Stick up (y < -dz) → scroll down (show later lines)
+    inst._onThumbstick({ detail: { x: 0, y: -0.9 }, target: inst._rightHand });
+    expect(inst._scrollFacts).toHaveBeenCalledWith(3);
+
+    inst._scrollFacts.mockClear();
+    inst._lastFactsScroll = 0; // reset cooldown
+    // Stick down (y > dz) → scroll up (show earlier lines)
+    inst._onThumbstick({ detail: { x: 0, y: 0.9 }, target: inst._rightHand });
+    expect(inst._scrollFacts).toHaveBeenCalledWith(-3);
+
+    // Zoom should NOT be triggered
+    expect(inst._stepCloser).not.toHaveBeenCalled();
+    expect(inst._stepFarther).not.toHaveBeenCalled();
+  });
+
+  test('_renderFactsWindow adds bottom fade gradient when more lines exist below', () => {
+    const inst = buildInstance();
+    // 25 lines total, 20 visible (default from source, but buildInstance sets 12)
+    // Override to a small number so we can trigger the gradient:
+    inst._factsMaxVisible = 5;
+    inst._factsLines = Array.from({ length: 10 }, (_, i) => ({ text: `Line ${i}`, type: 'text', headingLevel: 0 }));
+    inst._factsScrollLine = 0; // 0 + 5 < 10 → hasMoreBelow = true
+
+    inst._renderFactsWindow();
+
+    const ctx = inst._factsCanvas.getContext();
+    expect(ctx.createLinearGradient).toHaveBeenCalled();
+    expect(ctx.fillRect).toHaveBeenCalled();
+  });
+
+  test('_renderFactsWindow does NOT add fade gradient when all lines are visible', () => {
+    const inst = buildInstance();
+    inst._factsMaxVisible = 12;
+    inst._factsLines = Array.from({ length: 5 }, (_, i) => ({ text: `Line ${i}`, type: 'text', headingLevel: 0 }));
+    inst._factsScrollLine = 0; // 0 + 12 >= 5 → hasMoreBelow = false
+
+    inst._renderFactsWindow();
+
+    const ctx = inst._factsCanvas.getContext();
+    expect(ctx.createLinearGradient).not.toHaveBeenCalled();
+    expect(ctx.fillRect).not.toHaveBeenCalled();
   });
 
   test('_hideFactsFrame resets scroll state and hides loading bar', () => {

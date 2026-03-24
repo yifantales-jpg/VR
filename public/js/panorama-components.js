@@ -430,6 +430,11 @@ AFRAME.registerComponent('vr-controller-input', {
                      self._zoomPlaneEl.getObject3D('mesh');
         if (!mesh) return;
         self._zoomTexture = new THREE.CanvasTexture(self._zoomCanvas);
+        // Match the sky texture's color-space and filtering settings so
+        // colors are faithful and the GPU doesn't apply unwanted blurring.
+        self._zoomTexture.colorSpace    = THREE.SRGBColorSpace;
+        self._zoomTexture.minFilter     = THREE.LinearFilter;
+        self._zoomTexture.generateMipmaps = false;
         mesh.material.map = self._zoomTexture;
         mesh.material.needsUpdate = true;
       };
@@ -468,11 +473,18 @@ AFRAME.registerComponent('vr-controller-input', {
 
     const cosA = Math.cos(skyYRad);
     const sinA = Math.sin(skyYRad);
+    // Apply inverse of the sky's Y-rotation to get the direction in sphere-local space.
+    // <a-sky> also has scale(-1,1,1) applied by default, which negates the x component.
+    // Accounting for both transforms: texX_local = -(worldDir.x*cosA - worldDir.z*sinA),
+    // texZ_local = worldDir.x*sinA + worldDir.z*cosA.
+    // Three.js SphereGeometry UV: phi = atan2(z_local, -x_local), so
+    // phi = atan2(texZ_local, texX_local_before_negation) = atan2(texZ, texX).
     const texX = worldDir.x * cosA - worldDir.z * sinA;
     const texZ = worldDir.x * sinA + worldDir.z * cosA;
     const texY = worldDir.y;
 
-    const azimuth   = Math.atan2(texZ, -texX);
+    // atan2(texZ, texX) correctly accounts for <a-sky>'s scale(-1,1,1).
+    const azimuth   = Math.atan2(texZ, texX);
     const elevation = Math.asin(Math.max(-1, Math.min(1, texY)));
     const u = ((azimuth / (Math.PI * 2)) + 1) % 1;
     const v = 0.5 - elevation / Math.PI;
@@ -492,11 +504,8 @@ AFRAME.registerComponent('vr-controller-input', {
     const dstH = this._zoomCanvas.height;
     ctx.clearRect(0, 0, dstW, dstH);
 
-    // Flip horizontally: inside-sphere mapping mirrors left ↔ right.
-    ctx.save();
-    ctx.translate(dstW, 0);
-    ctx.scale(-1, 1);
-
+    // No horizontal flip needed: <a-sky>'s scale(-1,1,1) already accounts for
+    // inside-sphere left-right mirroring, so the canvas should match the sphere.
     if (srcX < 0) {
       const wW = -srcX;
       const rW = srcW - wW;
@@ -516,7 +525,6 @@ AFRAME.registerComponent('vr-controller-input', {
         0, 0, dstW, dstH);
     }
 
-    ctx.restore();
     if (this._zoomTexture) this._zoomTexture.needsUpdate = true;
   },
 
@@ -668,11 +676,12 @@ AFRAME.registerComponent('vr-controller-input', {
       skyYRad = this._skyEl.object3D.rotation.y || 0;
     }
 
-    // Rotate direction by the inverse of the sky's Y rotation to get the
-    // direction in the equirectangular texture's coordinate frame.
-    // The inverse of R_y(skyYRad) is R_y(-skyYRad), whose matrix elements
-    // use cos(skyYRad) and -sin(skyYRad) — note the sign is the OPPOSITE of
-    // the forward rotation.
+    // Rotate direction by the inverse of the sky's Y rotation, accounting for
+    // <a-sky>'s default scale(-1,1,1).  The full sky transform is
+    // T = R_y(skyYRad) ∘ scale(-1,1,1), so T⁻¹ = scale(-1,1,1) ∘ R_y(-skyYRad).
+    // After applying R_y(-skyYRad) we get (texX, texZ) in the rotated frame; then
+    // scale(-1,1,1) negates x.  Three.js SphereGeometry UV formula:
+    //   phi = atan2(z_local, -x_local) = atan2(texZ, -(-texX)) = atan2(texZ, texX)
     const cosA = Math.cos(skyYRad);
     const sinA = Math.sin(skyYRad);
     const texX = worldDir.x * cosA - worldDir.z * sinA;
@@ -680,19 +689,17 @@ AFRAME.registerComponent('vr-controller-input', {
     const texY = worldDir.y;
 
     // Map to equirectangular UV [0,1]×[0,1].
-    // Three.js SphereGeometry places u=0 at local -X (phi=0) and increases
-    // phi = atan2(z, -x), so azimuth must be computed from (texZ, -texX).
-    const azimuth   = Math.atan2(texZ, -texX);                       // [-π, π]
+    // atan2(texZ, texX) correctly accounts for <a-sky>'s scale(-1,1,1).
+    const azimuth   = Math.atan2(texZ, texX);                         // [-π, π]
     const elevation = Math.asin(Math.max(-1, Math.min(1, texY)));
     const u = ((azimuth / (Math.PI * 2)) + 1) % 1;
     const v = 0.5 - elevation / Math.PI;
 
-    // Crop region: square in angular space → no aspect-ratio distortion when
-    // displayed in the square zoom window.  panoW/16 pixels ≈ 22.5°, giving
-    // roughly 3-4× visual zoom at the 0.5 m window distance.
+    // Crop region: panoW/4 ≈ 90° — matches the typical VR headset FOV and gives
+    // the AI a full-scene view of what the user is looking at.
     const panoW = this._panoramaCanvas.width;
     const panoH = this._panoramaCanvas.height;
-    const side  = Math.floor(panoW / 16);   // equal angular size in both axes
+    const side  = Math.floor(panoW / 4);    // equal angular size in both axes
     const srcW  = side;
     const srcH  = side;
     const srcX  = u * panoW - srcW / 2;
@@ -704,12 +711,8 @@ AFRAME.registerComponent('vr-controller-input', {
     const dstH = this._snapshotCanvas.height;
     ctx.clearRect(0, 0, dstW, dstH);
 
-    // Flip horizontally: the equirectangular texture is mapped to the inside
-    // of the sky sphere, so the flat-image crop is left–right mirrored
-    // relative to what the user sees in VR.
-    ctx.save();
-    ctx.translate(dstW, 0);
-    ctx.scale(-1, 1);
+    // No horizontal flip: <a-sky>'s scale(-1,1,1) already handles left-right
+    // orientation, so the canvas matches what the user sees in VR.
 
     // Handle horizontal wrap at the ±180° seam.
     if (srcX < 0) {
@@ -730,8 +733,6 @@ AFRAME.registerComponent('vr-controller-input', {
       ctx.drawImage(this._panoramaCanvas, srcX, srcY, srcW, srcH,
         0, 0, dstW, dstH);
     }
-
-    ctx.restore();
   },
 
   // ── B button (right hand): AI facts window ───────────────────────────────

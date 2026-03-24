@@ -73,7 +73,8 @@ class StreetViewService {
           const photoUrl = StreetViewService._extractGooglePhotoUrl(pathDataMatch[1]);
           if (photoUrl) {
             const dims = StreetViewService._extractPhotoDimensions(pathDataMatch[1]);
-            return { panoId, photoUrl, ...dims };
+            // Include URL coordinates for photo spheres so the AI receives location context.
+            return { panoId, photoUrl, ...dims, ...coordHint };
           }
           return { panoId, ...coordHint };
         }
@@ -93,7 +94,8 @@ class StreetViewService {
           const photoUrl = StreetViewService._extractGooglePhotoUrl(data);
           if (photoUrl) {
             const dims = StreetViewService._extractPhotoDimensions(data);
-            return { panoId, photoUrl, ...dims };
+            // Include URL coordinates for photo spheres so the AI receives location context.
+            return { panoId, photoUrl, ...dims, ...coordHint };
           }
           return { panoId, ...coordHint };
         }
@@ -155,10 +157,13 @@ class StreetViewService {
     // User-contributed Photo Sphere: the equirectangular image URL is embedded
     // directly in the Maps URL; skip the CBK metadata proxy entirely.
     if (photoUrl) {
+      // Use URL-extracted coordinates when available so the AI receives location context.
+      const hasCoords = typeof lat === 'number' && typeof lng === 'number' &&
+                        !isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0);
       return {
         panoId:      panoId || '',
         description: '',
-        latLng:      { lat: 0, lng: 0 },
+        latLng:      hasCoords ? { lat, lng } : { lat: 0, lng: 0 },
         links:       [],
         copyright:   '',
         tiles:       null,

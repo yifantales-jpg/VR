@@ -566,31 +566,33 @@ describe('_updateSnapshotCanvas UV mapping', () => {
     return { inst, drawCalls, snapCtx };
   }
 
-  // Side length of the crop square (panoW/16).
-  const SIDE = Math.floor(4096 / 16); // 256
+  // Side length of the crop square (panoW/4 = 90° FOV).
+  const SIDE = Math.floor(4096 / 4); // 1024
 
-  test('looking forward with sky rotation y=-90° crops at u=0 (north)', () => {
-    // u=0 → srcX = 0*4096 - 256/2 = -128 → wraps: draws from panoW-128=3968
+  test('looking forward with sky rotation y=-90° crops at u=0.5 (center)', () => {
+    // With scale(-1,1,1) and skyYRad=-π/2, forward -Z → phi=π → u=0.5 (center of panorama).
+    // srcX = 0.5*4096 - 512 = 1536 → no seam wrap (1536+1024=2560 < 4096)
     const { inst, drawCalls } = buildSnapshotInstance(-90, { x: 0, y: 0, z: -1 });
     inst._updateSnapshotCanvas();
 
-    expect(drawCalls.length).toBe(2); // horizontal seam wrap
-    // First call: the wrapped left slice starting at panoW + srcX
-    expect(drawCalls[0][1]).toBeCloseTo(4096 - SIDE / 2, 0);
-  });
-
-  test('looking backward with sky rotation y=-90° crops at u=0.5 (south)', () => {
-    // u=0.5 → srcX = 0.5*4096 - 128 = 2048-128 = 1920 → no wrap
-    const { inst, drawCalls } = buildSnapshotInstance(-90, { x: 0, y: 0, z: 1 });
-    inst._updateSnapshotCanvas();
-
-    expect(drawCalls.length).toBe(1);
+    expect(drawCalls.length).toBe(1); // no horizontal seam wrap
     expect(drawCalls[0][1]).toBeCloseTo(0.5 * 4096 - SIDE / 2, 0);
   });
 
+  test('looking backward with sky rotation y=-90° crops at u=0 (seam)', () => {
+    // With scale(-1,1,1) and skyYRad=-π/2, backward +Z → phi=0 → u=0 (left edge/seam).
+    // srcX = 0*4096 - 512 = -512 → horizontal seam wrap (2 drawCalls)
+    const { inst, drawCalls } = buildSnapshotInstance(-90, { x: 0, y: 0, z: 1 });
+    inst._updateSnapshotCanvas();
+
+    expect(drawCalls.length).toBe(2); // horizontal seam wrap
+    // First draw: right portion of panorama from panoW + srcX = 4096-512 = 3584
+    expect(drawCalls[0][1]).toBeCloseTo(4096 - SIDE / 2, 0);
+  });
+
   test('looking forward with no sky rotation crops at u=0.75', () => {
-    // skyYRad=0, forward -Z → sky local -Z → phi=3π/2 → u=0.75
-    // srcX = 0.75*4096 - 128 = 3072-128 = 2944 → no wrap (2944+256=3200 < 4096)
+    // skyYRad=0, forward -Z → texX=0, texZ=-1 → phi=atan2(-1,0)=-π/2 → u=0.75
+    // srcX = 0.75*4096 - 512 = 3072-512 = 2560 → no wrap (2560+1024=3584 < 4096)
     const { inst, drawCalls } = buildSnapshotInstance(0, { x: 0, y: 0, z: -1 });
     inst._updateSnapshotCanvas();
 
@@ -607,14 +609,13 @@ describe('_updateSnapshotCanvas UV mapping', () => {
     expect(snapCtx.drawImage).not.toHaveBeenCalled();
   });
 
-  test('horizontally flips the crop to match inside-sphere mirroring', () => {
+  test('does not horizontally flip the crop (<a-sky> scale(-1,1,1) handles mirroring)', () => {
     const { inst, snapCtx } = buildSnapshotInstance(0, { x: 0, y: 0, z: -1 });
     inst._updateSnapshotCanvas();
 
-    expect(snapCtx.save).toHaveBeenCalled();
-    expect(snapCtx.translate).toHaveBeenCalledWith(512, 0);
-    expect(snapCtx.scale).toHaveBeenCalledWith(-1, 1);
-    expect(snapCtx.restore).toHaveBeenCalled();
+    // The canvas flip was removed because <a-sky>'s default scale(-1,1,1) already
+    // corrects inside-sphere left-right mirroring; a second flip would be wrong.
+    expect(snapCtx.scale).not.toHaveBeenCalledWith(-1, 1);
     expect(snapCtx.drawImage).toHaveBeenCalled();
   });
 

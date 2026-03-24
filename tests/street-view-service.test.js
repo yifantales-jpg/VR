@@ -126,6 +126,9 @@ describe('StreetViewService.parseGoogleMapsUrl', () => {
     expect(result.photoUrl).toBe('https://lh3.googleusercontent.com/gpms-cs-s/TestPhotoId');
     expect(result.photoWidth).toBe(14400);
     expect(result.photoHeight).toBe(7200);
+    // Coordinates from the @ segment are now included so the AI gets location context.
+    expect(result.lat).toBeCloseTo(31.8425117);
+    expect(result.lng).toBeCloseTo(35.4112367);
   });
 
   it('extracts photoUrl from a Photo Sphere hosted on lh4.googleusercontent.com', () => {
@@ -304,6 +307,23 @@ describe('StreetViewService.fetchPanoData with photoUrl', () => {
     expect(result.photoWidth).toBe(14400);
     expect(result.photoHeight).toBe(7200);
     expect(result.links).toEqual([]);
+    expect(result.latLng).toEqual({ lat: 0, lng: 0 });
+  });
+
+  it('uses URL coordinates for latLng when provided with a photo sphere', async () => {
+    const svc = new StreetViewService();
+    const photoUrl = 'https://lh3.googleusercontent.com/gpms-cs-s/TestPhotoId';
+    const result = await svc.fetchPanoData({ photoUrl, lat: 48.8566, lng: 2.3522 });
+
+    expect(result.latLng).toEqual({ lat: 48.8566, lng: 2.3522 });
+    expect(result.photoUrl).toBe(photoUrl);
+  });
+
+  it('keeps latLng as 0,0 when photo sphere is called without coordinates', async () => {
+    const svc = new StreetViewService();
+    const photoUrl = 'https://lh3.googleusercontent.com/gpms-cs-s/TestPhotoId';
+    const result = await svc.fetchPanoData({ photoUrl });
+
     expect(result.latLng).toEqual({ lat: 0, lng: 0 });
   });
 

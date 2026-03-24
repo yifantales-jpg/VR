@@ -220,6 +220,10 @@ AFRAME.registerComponent('street-view-scene', {
           .then((data) => {
             if (data.address && this._geocodeSeq === seq) {
               label.setAttribute('value', data.address);
+              // Restart the fade timer so the user sees the resolved address
+              // at full opacity (the initial fade started before geocoding
+              // completed and may already be in progress or finished).
+              _startLocationLabelFade();
             }
           })
           .catch(() => {}); // geocoding is best-effort; fail silently
@@ -1088,10 +1092,13 @@ AFRAME.registerComponent('vr-controller-input', {
       const gradient = ctx.createLinearGradient(0, H - fadeH, 0, H);
       gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
       gradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
+      const prevCompositeOperation = ctx.globalCompositeOperation;
+      const prevFillStyle = ctx.fillStyle;
       ctx.globalCompositeOperation = 'destination-out';
       ctx.fillStyle = gradient;
       ctx.fillRect(0, H - fadeH, W, fadeH);
-      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalCompositeOperation = prevCompositeOperation;
+      ctx.fillStyle = prevFillStyle;
     }
 
     if (this._factsTexture) this._factsTexture.needsUpdate = true;

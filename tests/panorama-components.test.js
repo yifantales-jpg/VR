@@ -470,6 +470,61 @@ describe('street-view-scene panorama texture settings', () => {
     expect(label.setAttribute).toHaveBeenCalledWith('value', 'Rue de Rivoli, Paris, France');
   });
 
+  test('loadPanorama restarts location-label fade after geocoded address is applied', async () => {
+    const { instance, canvas, restore } = buildSceneInstance();
+    instance._geocodeSeq = 0;
+
+    const label = { setAttribute: jest.fn(), removeAttribute: jest.fn(), dataset: {} };
+    const origQuery = instance.el.querySelector;
+    instance.el.querySelector = jest.fn((sel) => {
+      if (sel === '#location-text') return label;
+      return origQuery(sel);
+    });
+
+    // Also expose the label to _startLocationLabelFade which uses getElementById.
+    const origDocument = global.document;
+    global.document = {
+      ...origDocument,
+      getElementById: jest.fn((id) => (id === 'location-text' ? label : null)),
+    };
+
+    const mockFetch = jest.fn(() =>
+      Promise.resolve({ json: () => Promise.resolve({ address: 'Tour Eiffel, Paris, France' }) })
+    );
+    const origFetch = global.fetch;
+    global.fetch = mockFetch;
+
+    try {
+      instance.loadPanorama(
+        { description: 'Paris', links: [], latLng: { lat: 48.8566, lng: 2.3522 } },
+        canvas,
+        0
+      );
+    } finally {
+      restore();
+      global.fetch = origFetch;
+      // NOTE: do NOT restore global.document here — the geocoding promise must
+      // still find the label via getElementById when it resolves below.
+    }
+
+    // Count animation__locfade setAttribute calls before geocoding resolves.
+    const fadeCallsBefore = label.setAttribute.mock.calls.filter(
+      ([attr]) => attr === 'animation__locfade'
+    ).length;
+
+    // Let the geocoding promise resolve.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // Restore document after the promise chain settles.
+    global.document = origDocument;
+
+    // After geocoding, _startLocationLabelFade must have been called again.
+    const fadeCallsAfter = label.setAttribute.mock.calls.filter(
+      ([attr]) => attr === 'animation__locfade'
+    ).length;
+    expect(fadeCallsAfter).toBeGreaterThan(fadeCallsBefore);
+  });
+
   test('loadPanorama discards stale geocoding response when user has navigated away', async () => {
     const { instance, canvas, restore } = buildSceneInstance();
     instance._geocodeSeq = 0;
@@ -710,6 +765,47 @@ describe('vr-controller-input floating windows', () => {
 
     expect(inst._copyFactsToClipboard).toHaveBeenCalled();
     expect(inst._hideFactsFrame).toHaveBeenCalled();
+  });
+
+  // ── A button ─────────────────────────────────────────────────────────────
+
+  test('_onAButton restores label opacity and schedules auto-fade', () => {
+    const inst = buildInstance();
+
+    const label = { removeAttribute: jest.fn(), setAttribute: jest.fn() };
+    const origDocument = global.document;
+    global.document = {
+      getElementById: jest.fn((id) => (id === 'location-text' ? label : null)),
+    };
+
+    try {
+      inst._onAButton();
+    } finally {
+      global.document = origDocument;
+    }
+
+    // _startLocationLabelFade cancels any in-progress animation and resets opacity.
+    expect(label.removeAttribute).toHaveBeenCalledWith('animation__locfade');
+    expect(label.setAttribute).toHaveBeenCalledWith('material', 'opacity: 1; shader: flat');
+    // Then schedules the fade-out animation.
+    expect(label.setAttribute).toHaveBeenCalledWith(
+      'animation__locfade',
+      expect.stringContaining('material.opacity')
+    );
+  });
+
+  test('remove() detaches abuttondown listener from right hand', () => {
+    const inst = buildInstance();
+    const rightHand = { removeEventListener: jest.fn() };
+    const leftHand  = { removeEventListener: jest.fn() };
+    inst._rightHand    = rightHand;
+    inst._leftHand     = leftHand;
+    inst._factsFrameEl = null;
+    inst._zoomPlaneEl  = null;
+
+    inst.remove();
+
+    expect(rightHand.removeEventListener).toHaveBeenCalledWith('abuttondown', expect.any(Function));
   });
 
   // ── _fetchAIFacts: includes coordinates when stored on location-text ──────
@@ -1038,6 +1134,29 @@ describe('vr-controller-input floating windows', () => {
     const ctx = inst._factsCanvas.getContext();
     expect(ctx.createLinearGradient).not.toHaveBeenCalled();
     expect(ctx.fillRect).not.toHaveBeenCalled();
+  });
+
+  test('_renderFactsWindow restores globalCompositeOperation and fillStyle after bottom fade', () => {
+    const inst = buildInstance();
+    inst._factsMaxVisible = 5;
+    inst._factsLines = Array.from({ length: 10 }, (_, i) => ({ text: `Line ${i}`, type: 'text', headingLevel: 0 }));
+    inst._factsScrollLine = 0;
+
+    // Capture assignments to globalCompositeOperation to verify save/restore.
+    const ctx = inst._factsCanvas.getContext();
+    const compositeOps = [];
+    Object.defineProperty(ctx, 'globalCompositeOperation', {
+      get: () => compositeOps.length ? compositeOps[compositeOps.length - 1] : 'source-over',
+      set: (v) => compositeOps.push(v),
+      configurable: true,
+    });
+
+    inst._renderFactsWindow();
+
+    // Should have set 'destination-out' then restored back to 'source-over'.
+    expect(compositeOps).toContain('destination-out');
+    const lastOp = compositeOps[compositeOps.length - 1];
+    expect(lastOp).toBe('source-over');
   });
 
   test('_hideFactsFrame resets scroll state and hides loading bar', () => {

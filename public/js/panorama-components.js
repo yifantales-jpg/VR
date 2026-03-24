@@ -117,6 +117,22 @@ AFRAME.registerComponent('nav-arrow', {
 /* ─── street-view-scene ─────────────────────────────────────────────────── */
 
 /**
+ * Show the in-VR location label at full opacity and schedule it to fade out
+ * after 3 seconds.  Re-calling this function cancels any in-progress fade and
+ * restarts the 3-second timer (e.g. when the user presses the A button).
+ */
+function _startLocationLabelFade() {
+  const textEl = typeof document !== 'undefined' && document.getElementById('location-text');
+  if (!textEl) return;
+  // Cancel any in-progress fade and restore full opacity.
+  textEl.removeAttribute('animation__locfade');
+  textEl.setAttribute('material', 'opacity: 1; shader: flat');
+  // Schedule the fade-out: 3 s hold, then 1 s fade to transparent.
+  textEl.setAttribute('animation__locfade',
+    'property: material.opacity; from: 1; to: 0; delay: 3000; dur: 1000; easing: easeInQuad');
+}
+
+/**
  * Top-level component attached to <a-scene>.
  * Listens for 'navigate' events bubbled from nav-arrows and loads the new panorama.
  *
@@ -211,6 +227,9 @@ AFRAME.registerComponent('street-view-scene', {
         delete label.dataset.lat;
         delete label.dataset.lng;
       }
+
+      // Show the location label at full opacity, then fade it out after 3 s.
+      _startLocationLabelFade();
     }
 
     // Rebuild navigation arrows.
@@ -273,6 +292,8 @@ AFRAME.registerComponent('loading-overlay', {
  *   - Left / right thumbstick left / right → rotate camera rig in discrete steps.
  *   - Left / right thumbstick up           → zoom in (canvas-based zoom plane).
  *   - Left / right thumbstick down         → zoom out / reset to default.
+ *   - Left / right thumbstick up / down    → scroll AI facts text when panel is open.
+ *   - A button (right hand)                → show location label (fades out after 3 s).
  *   - B button (right hand)                → request AI facts about the current view;
  *                                            tap again to dismiss (copies text to clipboard).
  *   - X button (left hand)                 → exit VR.
@@ -302,7 +323,7 @@ AFRAME.registerComponent('vr-controller-input', {
     // Facts-panel scroll state.
     this._factsLines       = [];   // all wrapped lines of the current AI response
     this._factsScrollLine  = 0;    // index of the first visible line
-    this._factsMaxVisible  = 12;   // how many lines fit in the panel
+    this._factsMaxVisible  = 20;   // how many lines fit in the panel
     this._lastFactsScroll  = 0;    // cooldown timestamp for scroll steps
 
     this._panoramaCanvas = document.getElementById('panorama-canvas');
@@ -315,7 +336,7 @@ AFRAME.registerComponent('vr-controller-input', {
     // Off-screen canvas used for markdown-formatted facts text rendering.
     this._factsCanvas        = document.createElement('canvas');
     this._factsCanvas.width  = 1024;
-    this._factsCanvas.height = 512;
+    this._factsCanvas.height = 853;
     this._factsTexture       = null;
 
     // Cache frequently-accessed DOM elements to avoid per-frame queries.
@@ -332,6 +353,7 @@ AFRAME.registerComponent('vr-controller-input', {
     this._onThumbstick = this._onThumbstick.bind(this);
     this._onXButton    = this._onXButton.bind(this);
     this._onBButton    = this._onBButton.bind(this);
+    this._onAButton    = this._onAButton.bind(this);
 
     this._leftHand  = document.getElementById('left-hand');
     this._rightHand = document.getElementById('right-hand');
@@ -343,6 +365,7 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._rightHand) {
       this._rightHand.addEventListener('thumbstickmoved', this._onThumbstick);
       this._rightHand.addEventListener('bbuttondown',    this._onBButton);
+      this._rightHand.addEventListener('abuttondown',    this._onAButton);
     }
 
     this._setupFactsFrame();
@@ -359,14 +382,14 @@ AFRAME.registerComponent('vr-controller-input', {
     if (!camera) return;
 
     this._factsFrameEl = document.createElement('a-entity');
-    this._factsFrameEl.setAttribute('position', '0 -0.18 -0.7');
+    this._factsFrameEl.setAttribute('position', '0 -0.25 -0.7');
     this._factsFrameEl.setAttribute('visible', false);
 
     // A-plane displaying the markdown-formatted canvas texture.
     // No background panel — text has its own outline border drawn on canvas.
     this._factsPlaneEl = document.createElement('a-plane');
     this._factsPlaneEl.setAttribute('width',    '0.60');
-    this._factsPlaneEl.setAttribute('height',   '0.30');
+    this._factsPlaneEl.setAttribute('height',   '0.50');
     this._factsPlaneEl.setAttribute('position', '0 0 0.001');
     this._factsPlaneEl.setAttribute('material', 'shader: flat; transparent: true; side: front');
     this._factsFrameEl.appendChild(this._factsPlaneEl);
@@ -414,11 +437,13 @@ AFRAME.registerComponent('vr-controller-input', {
     this._zoomCanvas.width  = 512;
     this._zoomCanvas.height = 512;
 
-    // A 2 m × 2 m plane at 0.5 m covers ~127° — enough for Quest 3's FOV.
+    // A 4 m × 4 m plane at 1 m covers ~127° — enough for Quest 3's FOV.
+    // Doubling the distance (vs 0.5 m) gives a more comfortable viewing
+    // distance and reduces apparent pixelation of the zoom texture.
     this._zoomPlaneEl = document.createElement('a-plane');
-    this._zoomPlaneEl.setAttribute('width',    '2');
-    this._zoomPlaneEl.setAttribute('height',   '2');
-    this._zoomPlaneEl.setAttribute('position', '0 0 -0.5');
+    this._zoomPlaneEl.setAttribute('width',    '4');
+    this._zoomPlaneEl.setAttribute('height',   '4');
+    this._zoomPlaneEl.setAttribute('position', '0 0 -1.0');
     this._zoomPlaneEl.setAttribute('material', 'shader: flat; transparent: false; side: front');
     this._zoomPlaneEl.setAttribute('visible',  false);
     camera.appendChild(this._zoomPlaneEl);
@@ -536,6 +561,7 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._rightHand) {
       this._rightHand.removeEventListener('thumbstickmoved', this._onThumbstick);
       this._rightHand.removeEventListener('bbuttondown',    this._onBButton);
+      this._rightHand.removeEventListener('abuttondown',    this._onAButton);
     }
     if (this._factsFrameEl && this._factsFrameEl.parentNode) {
       this._factsFrameEl.parentNode.removeChild(this._factsFrameEl);
@@ -569,8 +595,8 @@ AFRAME.registerComponent('vr-controller-input', {
       this._lastTurn = now;
     }
 
-    // ── Up / Down on left stick while facts panel is open → scroll ────────
-    if (evt.target === this._leftHand && this._factsActive) {
+    // ── Up / Down on either stick while facts panel is open → scroll ──────
+    if (this._factsActive) {
       if (Math.abs(y) >= dz && now - this._lastFactsScroll >= this.data.turnCooldown) {
         if (y < -dz) {
           // Stick up → scroll text down (show later lines)
@@ -1053,6 +1079,21 @@ AFRAME.registerComponent('vr-controller-input', {
       y += LINE_H;
     }
 
+    // When there are more lines below the visible window, draw a gradient at
+    // the bottom of the canvas fading to transparent.  This signals to the
+    // user that additional content is available by scrolling up.
+    const hasMoreBelow = (start + this._factsMaxVisible) < this._factsLines.length;
+    if (hasMoreBelow) {
+      const fadeH = Math.floor(H * 0.25);
+      const gradient = ctx.createLinearGradient(0, H - fadeH, 0, H);
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 1)');
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, H - fadeH, W, fadeH);
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
     if (this._factsTexture) this._factsTexture.needsUpdate = true;
   },
 
@@ -1150,6 +1191,14 @@ AFRAME.registerComponent('vr-controller-input', {
   _onXButton() {
     const scene = this.el.sceneEl;
     if (scene && scene.is('vr-mode')) scene.exitVR();
+  },
+
+  /**
+   * A button (right hand): show the location label and restart the 3-second
+   * auto-fade timer.
+   */
+  _onAButton() {
+    _startLocationLabelFade();
   },
 });
 

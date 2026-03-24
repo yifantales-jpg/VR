@@ -301,6 +301,7 @@ AFRAME.registerComponent('loading-overlay', {
  *   - B button (right hand)                → request AI facts about the current view;
  *                                            tap again to dismiss (copies text to clipboard).
  *   - X button (left hand)                 → exit VR.
+ *   - Y button (left hand)                 → load a random Street View panorama.
  *
  * Attach to the #camera-rig entity: <a-entity vr-controller-input …>
  */
@@ -356,6 +357,7 @@ AFRAME.registerComponent('vr-controller-input', {
 
     this._onThumbstick = this._onThumbstick.bind(this);
     this._onXButton    = this._onXButton.bind(this);
+    this._onYButton    = this._onYButton.bind(this);
     this._onBButton    = this._onBButton.bind(this);
     this._onAButton    = this._onAButton.bind(this);
 
@@ -365,6 +367,7 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._leftHand) {
       this._leftHand.addEventListener('thumbstickmoved', this._onThumbstick);
       this._leftHand.addEventListener('xbuttondown',    this._onXButton);
+      this._leftHand.addEventListener('ybuttondown',    this._onYButton);
     }
     if (this._rightHand) {
       this._rightHand.addEventListener('thumbstickmoved', this._onThumbstick);
@@ -561,6 +564,7 @@ AFRAME.registerComponent('vr-controller-input', {
     if (this._leftHand) {
       this._leftHand.removeEventListener('thumbstickmoved', this._onThumbstick);
       this._leftHand.removeEventListener('xbuttondown',    this._onXButton);
+      this._leftHand.removeEventListener('ybuttondown',    this._onYButton);
     }
     if (this._rightHand) {
       this._rightHand.removeEventListener('thumbstickmoved', this._onThumbstick);
@@ -1198,6 +1202,16 @@ AFRAME.registerComponent('vr-controller-input', {
   _onXButton() {
     const scene = this.el.sceneEl;
     if (scene && scene.is('vr-mode')) scene.exitVR();
+  },
+
+  /**
+   * Y button (left hand): load a random panorama from the server's curated
+   * location list.  Dispatches a 'load-random-pano' event on the scene so
+   * that app.js can handle the async fetch and panorama swap.
+   */
+  _onYButton() {
+    const scene = this.el.sceneEl;
+    if (scene) scene.emit('load-random-pano');
   },
 
   /**

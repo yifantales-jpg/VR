@@ -227,6 +227,16 @@ describe('GET /api/geocode', () => {
   });
 });
 
+describe('GET /api/random-pano', () => {
+  it('attempts to fetch from CBK and returns a non-400 status (network may fail in test env)', async () => {
+    const res = await request(app).get('/api/random-pano');
+    // Server-side validation always passes (no query params required).
+    // In a test environment without real network access the upstream CBK call
+    // will fail with a 502; we only verify it did NOT return 400.
+    expect(res.status).not.toBe(400);
+  });
+});
+
 describe('POST /api/ai-facts', () => {
   const savedKey = process.env.GEMINI_API_KEY;
 

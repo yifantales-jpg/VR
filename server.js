@@ -5,8 +5,9 @@
  *
  * Responsibilities:
  *  1. Serve the static web app from ./public.
- *  2. Proxy Street View panorama tile requests to Google's CBK tile service.
- *     This avoids CORS errors in the browser. No API key is required.
+ *  2. Proxy Street View panorama tile requests to Google's Street View Pixels
+ *     service (streetviewpixels-pa.googleapis.com). This avoids CORS errors
+ *     in the browser. No API key is required.
  *  3. Proxy CBK panorama metadata (JSON) requests. No API key required.
  *  4. Serve over HTTPS (required for WebXR on Quest 3 and other devices).
  *     A self-signed certificate is generated automatically when no certificate
@@ -35,8 +36,10 @@
  *
  *   GET  /api/random-pano
  *        Return a panoId for a random Street View panorama chosen from a
- *        curated set of world-wide locations.  The Y button uses this to
- *        jump to a random panorama without user input.
+ *        curated set of world-wide locations.  Uses Google Maps'
+ *        GeoPhotoService.SingleImageSearch internal API (no API key required).
+ *        The Y button and the "Random" UI button use this to jump to a random
+ *        panorama without user input.
  *
  *   POST /api/ai-facts
  *        Accept a base64 JPEG snapshot of the current view and an optional
@@ -156,8 +159,9 @@ function safePanoId(value) {
 /**
  * GET /api/tile?panoid=…&zoom=…&x=…&y=…
  *
- * Fetches a single equirectangular panorama tile from Google's CBK tile service
- * and streams it back to the browser as image/jpeg.
+ * Fetches a single equirectangular panorama tile from Google's Street View
+ * Pixels service (streetviewpixels-pa.googleapis.com) and streams it back to
+ * the browser as image/jpeg.  No API key is required.
  *
  * Zoom levels and tile counts:
  *   zoom=0 → 1×1, zoom=1 → 2×1, zoom=2 → 4×2, zoom=3 → 8×4, zoom=4 → 16×8
@@ -179,8 +183,8 @@ app.get('/api/tile', apiLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Tile coordinates out of range.' });
   }
 
-  // Google's CBK tile service URL (well-known public endpoint used by the Maps SDK).
-  const tileUrl = `https://cbk0.google.com/cbk?output=tile&panoid=${encodeURIComponent(panoId)}&zoom=${zoom}&x=${x}&y=${y}`;
+  // Google's Street View Pixels tile service URL.
+  const tileUrl = `https://streetviewpixels-pa.googleapis.com/v1/tile?cb_client=maps_sv.tactile&panoid=${encodeURIComponent(panoId)}&zoom=${zoom}&x=${x}&y=${y}`;
 
   try {
     const upstream = await fetch(tileUrl, {
@@ -357,10 +361,17 @@ const RANDOM_PANO_LOCATIONS = [
 /**
  * GET /api/random-pano
  *
- * Picks a random entry from the RANDOM_PANO_LOCATIONS list, queries the
- * Google CBK metadata service for the nearest Street View panorama, and
- * returns its panoId.  Used by the VR controller's Y button to jump to a
- * random panorama without requiring user input.
+ * Picks a random entry from the RANDOM_PANO_LOCATIONS list and queries
+ * Google Maps' GeoPhotoService.SingleImageSearch API (the same internal
+ * endpoint used by the Maps JavaScript SDK) for the nearest Street View
+ * panorama.  Returns its panoId.  Used by the VR controller's Y button and
+ * the "Random" button in the 2-D UI to jump to a random panorama without
+ * requiring user input.
+ *
+ * The request URL uses Google's compact protobuf-URL encoding; the lat/lng
+ * values are the only dynamic parts.  The callback-wrapped JSON response is
+ * stripped and the pano ID is extracted from the nested array at index
+ * [0][1][1][1].
  *
  * Response (application/json):
  *   { panoId: "…" }
@@ -370,15 +381,32 @@ app.get('/api/random-pano', apiLimiter, async (req, res) => {
     Math.floor(Math.random() * RANDOM_PANO_LOCATIONS.length)
   ];
 
-  const params = new URLSearchParams({
-    output: 'json',
-    ll:     `${lat},${lng}`,
-    radius: String(DEFAULT_PANO_SEARCH_RADIUS),
-  });
-  const cbkUrl = `https://cbk0.google.com/cbk?${params}`;
+  // Build the GeoPhotoService.SingleImageSearch URL.
+  // The `pb` parameter uses Google's compact protobuf-URL encoding, where each
+  // segment is `!{field_tag}{type}{value}` and `!{tag}m{count}` introduces a
+  // nested message with `count` child elements:
+  //   !1m5  – outer field 1 (app context): 5 children
+  //     !1sapiv3  – field 1 = string "apiv3" (API version)
+  //     !5sUS     – field 5 = string "US"   (country)
+  //     !11m2!1m1!1b0 – field 11.1.1 = bool false (no special flags)
+  //   !2m4  – outer field 2 (search location): 4 children
+  //     !1m2!3d{lat}!4d{lng} – field 1 = message {lat, lng doubles}
+  //     !2d50 – field 2 = double 50 (search radius in metres)
+  //   !3m10 – outer field 3 (locale/type): 10 children
+  //     !2m2!1sen!2sUS – field 2 = message {lang="en", country="US"}
+  //     !9m1!1e2       – field 9 = message {field 1 = enum 2}
+  //     !11m4!1m3!1e2!2b1!3e2 – field 11 = image-type config (street-view only)
+  //   !4m9  – outer field 4 (metadata toggles): 9 children
+  //     !1e1!1e2!1e3!1e4!1e6!1e8!1e12 – 7 enum flags (resolution, date, etc.)
+  //     !5m0!6m0 – empty depth-map fields (depth download disabled)
+  // Only the lat/lng doubles change between requests; everything else is fixed.
+  const pb = `!1m5!1sapiv3!5sUS!11m2!1m1!1b0!2m4!1m2!3d${lat}!4d${lng}!2d50!3m10!2m2!1sen!2sUS!9m1!1e2!11m4!1m3!1e2!2b1!3e2!4m9!1e1!1e2!1e3!1e4!1e6!1e8!1e12!5m0!6m0`;
+  // The `callback` query parameter is the JSONP wrapper function name expected
+  // by the Maps JS API client; it must be present for the server to respond.
+  const apiUrl = `https://maps.googleapis.com/maps/api/js/GeoPhotoService.SingleImageSearch?pb=${pb}&callback=_xdc_._v2mub5`;
 
   try {
-    const upstream = await fetch(cbkUrl, {
+    const upstream = await fetch(apiUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; VRStreetView/1.0)',
         'Referer':    'https://maps.google.com/',
@@ -390,8 +418,29 @@ app.get('/api/random-pano', apiLimiter, async (req, res) => {
       return res.status(upstream.status).json({ error: 'Could not find a panorama at this location.' });
     }
 
-    const json   = await upstream.json();
-    const panoId = json && json.Location && json.Location.panoId;
+    const text = await upstream.text();
+
+    // The response is a JSONP callback: _xdc_._v2mub5( [...] );
+    // Strip the wrapper to obtain parseable JSON.
+    const parenStart = text.indexOf('(');
+    const parenEnd   = text.lastIndexOf(')');
+    if (parenStart === -1 || parenEnd === -1) {
+      return res.status(502).json({ error: 'Unexpected response format from Maps API.' });
+    }
+    // The response is a JSONP callback: _xdc_._v2mub5( arg0, arg1, … );
+    // Wrapping the inner content in "[…]" turns the comma-separated arguments
+    // into a JSON array so JSON.parse can consume all of them at once.
+    // The pano data lives in the first argument: data[0].
+    const data = JSON.parse('[' + text.slice(parenStart + 1, parenEnd) + ']');
+
+    // Status code 0 = OK, 5 = no results.
+    const status = data && data[0] && data[0][0] && data[0][0][0];
+    if (status !== 0) {
+      return res.status(502).json({ error: 'No panorama found at this location.' });
+    }
+
+    // Pano ID is at data[0][1][1][1] in the parsed structure.
+    const panoId = data[0][1][1][1];
     if (!panoId) {
       return res.status(502).json({ error: 'No panorama found at this location.' });
     }

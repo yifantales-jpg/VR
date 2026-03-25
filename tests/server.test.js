@@ -228,7 +228,7 @@ describe('GET /api/geocode', () => {
 });
 
 describe('GET /api/random-pano', () => {
-  it('attempts to fetch from Google Maps GeoPhotoService and returns a non-400 status (network may fail in test env)', async () => {
+  it('attempts to fetch from Google CBK and returns a non-400 status (network may fail in test env)', async () => {
     const res = await request(app).get('/api/random-pano');
     // Server-side validation always passes (no query params required).
     // In a test environment without real network access the upstream call

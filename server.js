@@ -370,46 +370,68 @@ const RANDOM_PANO_LOCATIONS = [
  * Using CBK's ll= lookup ensures the returned panoId is always valid for
  * subsequent tile and metadata requests through the same API.
  *
+ * Up to MAX_RANDOM_PANO_ATTEMPTS different locations are tried in a random
+ * order before giving up, so a single CBK miss or transient error does not
+ * surface a 502 to the user.
+ *
  * Response (application/json):
  *   { panoId: "…" }
  */
+const MAX_RANDOM_PANO_ATTEMPTS = 5;
+
 app.get('/api/random-pano', apiLimiter, async (req, res) => {
-  const [lat, lng] = RANDOM_PANO_LOCATIONS[
-    Math.floor(Math.random() * RANDOM_PANO_LOCATIONS.length)
-  ];
-
-  const params = new URLSearchParams({
-    output: 'json',
-    ll: `${lat},${lng}`,
-    radius: String(DEFAULT_PANO_SEARCH_RADIUS),
-  });
-  const cbkUrl = `https://cbk0.google.com/cbk?${params}`;
-
-  try {
-    const upstream = await fetch(cbkUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; VRStreetView/1.0)',
-        'Referer':    'https://maps.google.com/',
-      },
-      timeout: 10000,
-    });
-
-    if (!upstream.ok) {
-      return res.status(502).json({ error: 'No panorama found at this location.' });
-    }
-
-    const json = await upstream.json();
-    const panoId = json && json.Location && json.Location.panoId;
-    if (!panoId) {
-      return res.status(502).json({ error: 'No panorama found at this location.' });
-    }
-
-    return res.json({ panoId });
-
-  } catch (err) {
-    console.error('[random-pano]', err.message);
-    return res.status(502).json({ error: 'Failed to fetch random panorama.' });
+  // Build a randomly-ordered candidate list (Fisher-Yates partial shuffle so
+  // we only shuffle as many entries as we actually need to try).
+  const indices = Array.from({ length: RANDOM_PANO_LOCATIONS.length }, (_, i) => i);
+  const attempts = Math.min(MAX_RANDOM_PANO_ATTEMPTS, indices.length);
+  for (let i = 0; i < attempts; i++) {
+    const j = i + Math.floor(Math.random() * (indices.length - i));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
   }
+
+  let lastError = 'No panorama found at this location.';
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const [lat, lng] = RANDOM_PANO_LOCATIONS[indices[attempt]];
+
+    const params = new URLSearchParams({
+      output: 'json',
+      ll: `${lat},${lng}`,
+      radius: String(DEFAULT_PANO_SEARCH_RADIUS),
+    });
+    const cbkUrl = `https://cbk0.google.com/cbk?${params}`;
+
+    try {
+      const upstream = await fetch(cbkUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; VRStreetView/1.0)',
+          'Referer':    'https://maps.google.com/',
+        },
+        timeout: 10000,
+      });
+
+      if (!upstream.ok) {
+        lastError = `CBK returned ${upstream.status} for [${lat},${lng}].`;
+        continue;
+      }
+
+      const json = await upstream.json();
+      const panoId = json && json.Location && json.Location.panoId;
+      if (!panoId) {
+        lastError = `No panoId in CBK response for [${lat},${lng}].`;
+        continue;
+      }
+
+      return res.json({ panoId });
+
+    } catch (err) {
+      console.error(`[random-pano] attempt ${attempt + 1} [${lat},${lng}] failed:`, err.message);
+      lastError = err.message;
+    }
+  }
+
+  console.error('[random-pano] all attempts exhausted:', lastError);
+  return res.status(502).json({ error: 'Failed to fetch random panorama.' });
 });
 
 /* ─── Short URL resolver ─────────────────────────────────────────────────── */
